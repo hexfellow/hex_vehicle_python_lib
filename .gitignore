@@ -1,2 +1,4 @@
 dist/
-*.egg-info
+*.egg-info/
+generated/
+venv/

@@ -6,3 +6,13 @@ If you don't have your python environment yat and want the simplest way to get s
 
 # Details
 ...
+protoc --proto_path=./proto-public-api --python_out=./hex_vehicle/generated ./proto-public-api/public_api_down.proto ./proto-public-api/public_api_types.proto ./proto-public-api/public_api_up.proto
+
+
+Three modules:
+1. public_api
+- network manager: Reference proto package, construct data to send and receive data
+2. vehicle
+- vehicle data manager: Loop to update vehicle data. Implement interfaces for obtaining chassis status and controlling the chassis
+3. utils
+- General tools: Manage parameters and provide some common functionality.
