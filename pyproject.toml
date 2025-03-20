@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0", "protobuf"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hex_vehicle"
+version = "0.0.1"
+dependencies = [
+  "numpy>=1.17.4,<=1.26.4",
+]
+requires-python = ">=3.8"
+authors = [
+  { name="jecjune", email="jecjune@qq.com" },
+]
+maintainers = [
+  { name="jecjune", email="jecjune@qq.com" },
+]
+description = "This is a simple package."
+readme = "README.md"
+license = "Apache-2.0"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://gitlab.hexfellow.com/Jecjune/hex_vehicle_python_lib.git"
