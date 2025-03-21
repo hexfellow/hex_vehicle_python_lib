@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "protobuf"]
+requires = ["setuptools>=61.0", "protobuf", "websockets"]
 build-backend = "setuptools.build_meta"
 
 [project]

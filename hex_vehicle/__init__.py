@@ -12,7 +12,11 @@ from .generated import public_api_down_pb2
 from .generated import public_api_up_pb2
 from .generated import public_api_types_pb2
 
+
 from .public_api import PublicAPI
+
+from .utils import is_valid_ws_url, InvalidWSURLException
+
 
 __all__ = [
     # version
@@ -23,6 +27,10 @@ __all__ = [
     'public_api_up_pb2',
     'public_api_types_pb2',
 
-    # math_util
+    # public API
     'PublicAPI',
+
+    # utils
+    'is_valid_ws_url',
+    'InvalidWSURLException',
 ]

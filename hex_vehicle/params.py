@@ -6,7 +6,3 @@
 # Date  : 2025-3-20
 ################################################################
 from enum import Enum
-
-class ChassisType(Enum):
-    ABSOLUTE = 1
-    pass

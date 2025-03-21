@@ -6,10 +6,15 @@ If you don't have your python environment yat and want the simplest way to get s
 
 # Details
 ...
-protoc --proto_path=./proto-public-api --python_out=./hex_vehicle/generated ./proto-public-api/public_api_down.proto ./proto-public-api/public_api_types.proto ./proto-public-api/public_api_up.proto
 
 
-Three modules:
+How to compile the proto message in local files:
+```shell
+mkdir ./hex_vehicle/generated && protoc --proto_path=proto-public-api --python_out=hex_vehicle/generated proto-public-api/*.proto
+```
+
+
+This lib contain Three modules:
 1. public_api
 - network manager: Reference proto package, construct data to send and receive data
 2. vehicle
