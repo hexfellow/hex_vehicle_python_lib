@@ -5,7 +5,11 @@
 # Author: Jecjune jecjune@qq.com
 # Date  : 2025-3-20
 ################################################################
-from .generated import public_api_down_pb2, public_api_up_pb2, public_api_types_pb2
+
+from .generated import public_api_down_pb2
+from .generated import public_api_up_pb2
+from .generated import public_api_types_pb2
+
 import string
 
 
@@ -16,7 +20,6 @@ class PublicAPI:
         
 
     def construct_down_data():
-        
         pass
 
 

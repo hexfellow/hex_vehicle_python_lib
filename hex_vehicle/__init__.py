@@ -8,8 +8,11 @@
 
 __version__ = "0.0.3"
 
-from .public_api import public_api_down_pb2, public_api_up_pb2, public_api_types_pb2
+from .generated import public_api_down_pb2
+from .generated import public_api_up_pb2
+from .generated import public_api_types_pb2
 
+from .public_api import PublicAPI
 
 __all__ = [
     # version
@@ -21,5 +24,5 @@ __all__ = [
     'public_api_types_pb2',
 
     # math_util
-
+    'PublicAPI',
 ]

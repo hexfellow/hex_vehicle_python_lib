@@ -1,4 +1,5 @@
 import os
+import re
 from setuptools import setup, find_packages, find_namespace_packages
 from setuptools.command.build_py import build_py as _build_py
 import subprocess
@@ -11,6 +12,30 @@ def print_tree(startpath):
         subindent = ' ' * 4 * (level + 1)
         for f in files:
             print(f"{subindent}{f}")
+
+def modify_proto_imports(file_path):
+    """ 修改 Protobuf 生成文件中的绝对导入为相对导入 """
+    patterns = [
+        # 匹配 import xxx_pb2 或 import xxx_pb2 as alias
+        (r'^import (\w+_pb2)( as \w+)?$', r'from . import \1\2'),
+    ]
+    
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    modified = False
+    for pattern, replacement in patterns:
+        new_content, count = re.subn(
+            pattern, replacement, content,
+            flags=re.MULTILINE
+        )
+        if count > 0:
+            content = new_content
+            modified = True
+    
+    if modified:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
 
 class build_py(_build_py):
     def run(self):
@@ -41,6 +66,12 @@ class build_py(_build_py):
 
         # print("目录结构:")
         # print_tree(os.path.abspath(os.path.dirname(__file__)))
+
+        # 后处理：修改生成的 pb2.py 文件
+        for root, _, files in os.walk(out_dir):
+            for file in files:
+                if file.endswith('_pb2.py'):
+                    modify_proto_imports(os.path.join(root, file))
 
         # 将生成的文件动态添加到packages中
         generated_pkg = 'hex_vehicle.generated'
