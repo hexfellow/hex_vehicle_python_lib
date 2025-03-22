@@ -6,3 +6,13 @@
 # Date  : 2025-3-20
 ################################################################
 from enum import Enum
+
+# 自定义异常类型
+class WsError(Exception):
+    pass
+
+class ProtocolError(WsError):
+    pass
+
+class ConnectionClosedError(WsError):
+    pass

@@ -6,7 +6,8 @@
 # Date  : 2025-3-20
 ################################################################
 import re
-
+import time
+import asyncio
 
 class InvalidWSURLException(Exception):
     """自定义异常，用于表示 WebSocket URL 无效"""
@@ -39,3 +40,8 @@ def is_valid_ws_url(url: str) -> str:
     # 返回修正后的 WebSocket URL
     return f"{protocol}://{host}:{port_str}"
 
+
+async def delay(start_time, ms):
+    end_time = start_time + ms / 1000
+    now = time.perf_counter()
+    await asyncio.sleep(end_time - now)

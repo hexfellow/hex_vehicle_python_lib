@@ -10,7 +10,6 @@ from .generated.public_api_types_pb2 import BaseType
 import time
 import threading
 from copy import deepcopy
-from typing import Tuple
 
 SQRT_3 = 1.7320508075688772
 
@@ -58,20 +57,8 @@ class Vehicle:
         # unit: rad/s.
         self.target_spd_r: 0.0
 
+        self.target_torques = []
 
-    def write_target_speed(self, target_spd_x, target_spd_y, target_spd_r):
-        with self.lock:
-            self.last_target_spd_write_time = time.time()
-            self.target_spd_x = target_spd_x
-            self.target_spd_y = target_spd_y
-            self.target_spd_r = target_spd_r
-
-    def get_speed(self) -> Tuple[float, float, float]:
-        with self.lock:
-            return (deepcopy(self.target_spd_x), 
-                    deepcopy(self.target_spd_y), 
-                    deepcopy(self.target_spd_r))
-    
     def forward_kinematic(self, v: list) -> tuple:
         if self.base_type == BaseType.TripleOmniWheelLRDriver:
             if len(v)!= 3:
