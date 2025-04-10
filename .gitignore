@@ -3,3 +3,4 @@ dist/
 generated/
 venv/
 __pycache__/
+*.egg-info/

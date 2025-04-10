@@ -7,7 +7,7 @@
 ################################################################
 
 from .generated import public_api_down_pb2, public_api_up_pb2, public_api_types_pb2
-from .generated.public_api_types_pb2 import EmergencyStopCategory as EmergencyStopCategory
+from .generated.public_api_types_pb2 import ParkingStopCategory as ParkingStopCategory
 from .params import WsError, ProtocolError
 from .utils import is_valid_ws_url, InvalidWSURLException, delay
 from .vehicle import Vehicle
@@ -40,11 +40,16 @@ class PublicAPI:
             control_hz = MAX_CYCLES
         self.control_hz = control_hz
 
-        self.loop = threading.Thread(target=self.__loop_start)
-        self.__stop_event = threading.Event()
+        self.__shutdown_event = asyncio.Event()
         self.__last_data_frame_time = None
         self.__vehicle = None
         self.__last_warning_time = time.perf_counter()
+        self.__loop_thread = threading.Thread(target=self.__loop_start, daemon=True)
+        self.__api_data = []
+
+        # init api
+        self.__loop_thread.start()
+        self.wait_init()
 
     def construct_control_message(self, control_mode: str,
                                   data: list) -> public_api_down_pb2.APIDown:
@@ -85,42 +90,42 @@ class PublicAPI:
         msg.base_command.CopyFrom(base_command)
         return msg
 
-    def construct_clear_emergency_stop_message(self):
+    def construct_clear_parking_stop_message(self):
         """
-        @brief: For constructing a clear_emergency_stop message.
+        @brief: For constructing a clear_parking_stop message.
         """
         msg = public_api_down_pb2.APIDown()
         base_command = public_api_types_pb2.BaseCommand()
-        base_command.clear_emergency_stop = True
+        base_command.clear_parking_stop = True
         msg.base_command.CopyFrom(base_command)
         return msg
 
-    def construct_set_emergency_stop_message(
-            self, reason: str, category: EmergencyStopCategory,
+    def construct_set_parking_stop_message(
+            self, reason: str, category: ParkingStopCategory,
             is_remotely_clearable: bool) -> public_api_down_pb2.APIDown:
         """
-        @brief: For constructing a set_emergency_stop message.
+        @brief: For constructing a set_parking_stop message.
         @params:
-            reason: what caused the emergency stop
-            category: emergency stop category, values can be :
-                EmergencyStopCategory.EmergencyStopButton,
-                EmergencyStopCategory.MotorHasError,
-                EmergencyStopCategory.BatteryFail
-                EmergencyStopCategory.GamepadTriggered,
-                EmergencyStopCategory.UnknownEmergencyStopCategory,
-                EmergencyStopCategory.APICommunicationTimeout
-            is_remotely_clearable: whether the emergency stop can be cleared remotely
+            reason: what caused the parking stop
+            category: parking stop category, values can be :
+                ParkingStopCategory.EmergencyStopButton,
+                ParkingStopCategory.MotorHasError,
+                ParkingStopCategory.BatteryFail
+                ParkingStopCategory.GamepadTriggered,
+                ParkingStopCategory.UnknownParkingStopCategory,
+                ParkingStopCategory.APICommunicationTimeout
+            is_remotely_clearable: whether the parking stop can be cleared remotely
         """
         msg = public_api_down_pb2.APIDown()
         base_command = public_api_types_pb2.BaseCommand()
-        emergency_stop_detail = public_api_types_pb2.EmergencyStopDetail()
-        emergency_stop_category = category
+        parking_stop_detail = public_api_types_pb2.ParkingStopDetail()
+        parking_stop_category = category
 
-        emergency_stop_detail.reason = reason
-        emergency_stop_detail.category = emergency_stop_category
-        emergency_stop_detail.is_remotely_clearable = is_remotely_clearable
+        parking_stop_detail.reason = reason
+        parking_stop_detail.category = parking_stop_category
+        parking_stop_detail.is_remotely_clearable = is_remotely_clearable
 
-        base_command.trigger_emergency_stop.CopyFrom(emergency_stop_detail)
+        base_command.trigger_parking_stop.CopyFrom(parking_stop_detail)
         msg.base_command.CopyFrom(base_command)
         return msg
 
@@ -150,13 +155,22 @@ class PublicAPI:
             exit(1)
 
     def __loop_start(self):
-        asyncio.run(self.__main_loop())
+        self.__loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.__loop)
+        self.__loop.run_until_complete(self.__main_loop())
 
     def close(self):
         print("Received Ctrl+C, closing...")
-        self.__stop_event.set()
+        if self.__loop and self.__loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.__async_close(), self.__loop)
+        self.__loop_thread.join(timeout=1)
 
-    async def __capture_data_frame(self, ) -> Optional[public_api_up_pb2.APIUp]:
+    async def __async_close(self):
+        if self.__websocket:
+            await self.__websocket.close()
+        self.__shutdown_event.set()
+
+    async def __capture_data_frame(self) -> Optional[public_api_up_pb2.APIUp]:
         """
         @brief: Continuously monitor WebSocket connections until:
         1. Received a valid binary Protobuf message
@@ -171,8 +185,6 @@ class PublicAPI:
             base_backend.APIUp 对象 或 None
         """
         while True:
-            if self.__stop_event.is_set():
-                exit(0)
             try:
                 # 设置 3 秒超时接收
                 message = await asyncio.wait_for(self.__websocket.recv(),
@@ -188,26 +200,25 @@ class PublicAPI:
                             raise ProtocolError("Incomplete message")
                         return api_up
                     except Exception as e:
-                        logging.error(f"Protobuf 解码失败: {e}")
+                        logging.error(f"Protobuf encode fail: {e}")
                         raise ProtocolError("Invalid message format") from e
 
-                # 忽略文本消息
                 elif isinstance(message, str):
-                    logging.debug(f"忽略文本消息: {message[:50]}...")
+                    logging.debug(f"ignore string message: {message[:50]}...")
                     continue
 
             except asyncio.TimeoutError:
-                logging.warning("超过 3 秒未收到有效消息")
+                logging.warning("No data received for 3 seconds")
                 continue
 
             except ConnectionClosed as e:
                 self.__websocket = None
-                logging.info(f"连接已关闭 (code: {e.code}, reason: {e.reason})")
+                logging.info(f"Connection closed (code: {e.code}, reason: {e.reason})")
                 await self.__reconnect()
                 continue
 
             except Exception as e:
-                logging.error(f"未知错误: {str(e)}")
+                logging.error(f"Unknown error: {str(e)}")
                 raise WsError("Unexpected error") from e
 
     async def __reconnect(self):
@@ -216,8 +227,6 @@ class PublicAPI:
         base_delay = 1
 
         while retry_count < max_retries:
-            if self.__stop_event.is_set():
-                exit(0)
             try:
                 if self.__websocket:
                     await self.__websocket.close()
@@ -237,7 +246,7 @@ class PublicAPI:
 
     async def __capture_first_frame(self):
         api_up = await self.__capture_data_frame()
-        self.__vehicle = Vehicle(api_up.base_status.type)
+        self.__vehicle = Vehicle(api_up.robot_type)
         print("**Vehicle is ready to use**")
 
     async def __stop_websocket(self):
@@ -247,58 +256,64 @@ class PublicAPI:
         print("Public API started.")
         await self.__connect_ws()
         await self.__capture_first_frame()
-        asyncio.run(self.__periodic_state_checker())
+        task1 = asyncio.create_task(self.__periodic_state_checker())
+        task2 = asyncio.create_task(self.__periodic_data_parser())
+        self.__tasks = [task1, task2]
+        await self.__shutdown_event.wait()
+        for task in self.__tasks:
+            task.cancel()
+        await asyncio.gather(*self.__tasks, return_exceptions=True)
+        print("api exited gracefully.")
 
+
+    async def __periodic_data_parser(self):
         while True:
-            if self.__stop_event.is_set():
-                print("Public API stopped. Exiting...")
-                await self.__stop_websocket()
-                exit(0)
-            else:
-                api_up = await self.__capture_data_frame()
-                print(f"Received message: {api_up}")
+            api_up = await self.__capture_data_frame()
+            if len(self.__api_data) >= 50:
+                self.__api_data.pop(0)
+            self.__api_data.append(api_up)
 
-                vv = []
-                tt = []
-                pp = []
+            vv = []
+            tt = []
+            pp = []
 
-                for motor_status in self.api_up.motor_status:
-                    # parser motor data
-                    # TODO: also have other data can be parser
-                    torque = motor_status.torque  #Nm
-                    speed = motor_status.speed * motor_status.wheel_radius  #m/s
-                    position = motor_status.position / motor_status.pulse_per_rotation * 2.0 * PI * motor_status.wheel_radius  #m
+            for motor_status in api_up.motor_status:
+                # parser motor data
+                # TODO: also have other data can be parser
+                torque = motor_status.torque  #Nm
+                speed = motor_status.speed * motor_status.wheel_radius  #m/s
+                position = motor_status.position / motor_status.pulse_per_rotation * 2.0 * PI * motor_status.wheel_radius  #m
 
-                    tt.push(torque)
-                    vv.push(speed)
-                    pp.push(position)
+                tt.append(torque)
+                vv.append(speed)
+                pp.append(position)
 
-                # 调整轮子编号
-                v = []
-                p = []
+            # 调整轮子编号
+            v = deepcopy(vv)
+            p = deepcopy(pp)
 
-                v[0] = vv[1]
-                v[1] = vv[0]
-                v[2] = vv[2]
+            # v[0] = vv[1]
+            # v[1] = vv[0]
+            # v[2] = vv[2]
 
-                p[0] = pp[1]
-                p[1] = pp[0]
-                p[2] = pp[2]
+            # p[0] = pp[1]
+            # p[1] = pp[0]
+            # p[2] = pp[2]
 
-                with self.__vehicle.lock:
-                    self.__vehicle.vehicle_state = api_up.base_status
-                    self.__vehicle.read_spd_x, self.__vehicle.read_spd_y, self.__vehicle.read_spd_z = self.__vehicle.forward_kinematic(
-                        v)
-                    self.__vehicle.wheel_speeds = vv
-                    self.__vehicle.wheel_torques = tt
-                    self.__vehicle.wheel_positions = pp
+            with self.__vehicle.lock:
+                self.__vehicle.has_new = True
+                self.__vehicle.vehicle_state = api_up.base_status
+                result = self.__vehicle.forward_kinematic(v)
+                if result is not None:
+                    self.__vehicle.read_spd_x, self.__vehicle.read_spd_y, self.__vehicle.read_spd_z = result
+                self.__vehicle.wheel_speeds = vv
+                self.__vehicle.wheel_torques = tt
+                self.__vehicle.wheel_positions = pp
 
     async def __periodic_state_checker(self):
-        cycle_time = 1000.0 / self.control_cycle
+        cycle_time = 1000.0 / self.control_hz
+        start_time = time.perf_counter()
         while True:
-            if self.__stop_event.is_set():
-                exit(0)
-
             await delay(start_time, cycle_time)
             start_time = time.perf_counter()
 
@@ -313,10 +328,10 @@ class PublicAPI:
             if vehicle.vehicle_state is None:
                 continue
             else:
-                if vehicle.vehicle_state.emergency_stop_detail is not None:
+                if vehicle.vehicle_state.parking_stop_detail is not None:
                     if start_time - self.__last_warning_time > 500:
                         print(
-                            f"tate-emergency-stop: {vehicle.vehicle_state.emergency_stop_detail}"
+                            f"tate-emergency-stop: {vehicle.vehicle_state.parking_stop_detail}"
                         )
                         self.__last_data_frame_time = start_time
 
@@ -335,7 +350,17 @@ class PublicAPI:
                     self.send_down_message(msg)
 
     def is_api_exit(self) -> bool:
-        return not self.loop.is_alive()
+        return self.__loop.is_closed()
+    
+    def wait_init(self):
+        try:
+            while True:
+                if self.__vehicle is not None:
+                    break
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            self.close()
+            exit(1)
 
     def set_speed(self, target_spd_x, target_spd_y, target_spd_r):
         with self.__vehicle.lock:
@@ -351,10 +376,34 @@ class PublicAPI:
 
     def get_speed(self) -> Tuple[float, float, float]:
         with self.__vehicle.lock:
-            return (deepcopy(self.__vehicle.target_spd_x), 
-                    deepcopy(self.__vehicle.target_spd_y), 
-                    deepcopy(self.__vehicle.target_spd_r))
+            self.__vehicle.has_new = False
+            if self.__vehicle.read_spd_x is None:
+                return (0.0, 0.0, 0.0)
+            else:
+                return (deepcopy(self.__vehicle.target_spd_x), 
+                        deepcopy(self.__vehicle.target_spd_y), 
+                        deepcopy(self.__vehicle.target_spd_r))
         
-    def get_torque(self) -> list:
+    def get_motor_torque(self) -> list:
         with self.__vehicle.lock:
+            self.__vehicle.has_new = False
             return deepcopy(self.__vehicle.wheel_torques)
+        
+    def get_motor_position(self) -> list:
+        with self.__vehicle.lock:
+            self.__vehicle.has_new = False
+            return deepcopy(self.__vehicle.wheel_positions)
+    
+    def get_motor_velocity(self) -> list:
+        with self.__vehicle.lock:
+            self.__vehicle.has_new = False
+            return deepcopy(self.__vehicle.wheel_speeds)
+        
+    def _get_raw_data(self) -> Tuple[public_api_up_pb2.APIUp, int]:
+        if len(self.__api_data) == 0:
+            return (None, 0)
+        return (self.__api_data.pop(0), len(self.__api_data))
+    
+    def has_new_data(self) -> bool:
+        with self.__vehicle.lock:
+            return self.__vehicle.has_new
