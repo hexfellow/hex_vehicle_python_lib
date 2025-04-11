@@ -13,7 +13,7 @@ from .utils import is_valid_ws_url, InvalidWSURLException, delay
 from .vehicle import Vehicle
 
 import string
-from copy import deepcopy
+from copy import deepcopy, copy
 from numpy import pi as PI
 import asyncio
 import threading
@@ -25,6 +25,7 @@ import logging
 from websockets.exceptions import ConnectionClosed
 
 MAX_CYCLES = 1000
+RAW_DATA_LEN = 50
 
 class PublicAPI:
 
@@ -38,11 +39,11 @@ class PublicAPI:
         if control_hz > MAX_CYCLES:
             print(f"control_cycle is limit to {MAX_CYCLES}")
             control_hz = MAX_CYCLES
-        self.control_hz = control_hz
+        self.__control_hz = control_hz
 
         self.__shutdown_event = asyncio.Event()
         self.__last_data_frame_time = None
-        self.__vehicle = None
+        self.vehicle = None
         self.__last_warning_time = time.perf_counter()
         self.__loop_thread = threading.Thread(target=self.__loop_start, daemon=True)
         self.__api_data = []
@@ -246,11 +247,8 @@ class PublicAPI:
 
     async def __capture_first_frame(self):
         api_up = await self.__capture_data_frame()
-        self.__vehicle = Vehicle(api_up.robot_type)
+        self.vehicle = Vehicle(api_up.robot_type)
         print("**Vehicle is ready to use**")
-
-    async def __stop_websocket(self):
-        self.__websocket.close()
 
     async def __main_loop(self):
         print("Public API started.")
@@ -265,53 +263,35 @@ class PublicAPI:
         await asyncio.gather(*self.__tasks, return_exceptions=True)
         print("api exited gracefully.")
 
+    def _parse_raw_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[list, list, list]:
+        vv = []
+        tt = []
+        pp = []
+        for motor_status in api_up.motor_status:
+            # parser motor data
+            # TODO: also have other data can be parser
+            torque = motor_status.torque  #Nm
+            speed = motor_status.speed * motor_status.wheel_radius  #m/s
+            position = motor_status.position / motor_status.pulse_per_rotation * 2.0 * PI * motor_status.wheel_radius  #m
+
+            tt.append(torque)
+            vv.append(speed)
+            pp.append(position)
+        return (vv, tt, pp)
 
     async def __periodic_data_parser(self):
         while True:
             api_up = await self.__capture_data_frame()
-            if len(self.__api_data) >= 50:
+            if len(self.__api_data) >= RAW_DATA_LEN:
                 self.__api_data.pop(0)
             self.__api_data.append(api_up)
 
-            vv = []
-            tt = []
-            pp = []
-
-            for motor_status in api_up.motor_status:
-                # parser motor data
-                # TODO: also have other data can be parser
-                torque = motor_status.torque  #Nm
-                speed = motor_status.speed * motor_status.wheel_radius  #m/s
-                position = motor_status.position / motor_status.pulse_per_rotation * 2.0 * PI * motor_status.wheel_radius  #m
-
-                tt.append(torque)
-                vv.append(speed)
-                pp.append(position)
-
-            # 调整轮子编号
-            v = deepcopy(vv)
-            p = deepcopy(pp)
-
-            # v[0] = vv[1]
-            # v[1] = vv[0]
-            # v[2] = vv[2]
-
-            # p[0] = pp[1]
-            # p[1] = pp[0]
-            # p[2] = pp[2]
-
-            with self.__vehicle.lock:
-                self.__vehicle.has_new = True
-                self.__vehicle.vehicle_state = api_up.base_status
-                result = self.__vehicle.forward_kinematic(v)
-                if result is not None:
-                    self.__vehicle.read_spd_x, self.__vehicle.read_spd_y, self.__vehicle.read_spd_z = result
-                self.__vehicle.wheel_speeds = vv
-                self.__vehicle.wheel_torques = tt
-                self.__vehicle.wheel_positions = pp
+            tt,v,p = self._parse_raw_data(api_up)
+            self.vehicle.update_wheel_data(api_up.base_status, tt, v, p)
+                
 
     async def __periodic_state_checker(self):
-        cycle_time = 1000.0 / self.control_hz
+        cycle_time = 1000.0 / self.__control_hz
         start_time = time.perf_counter()
         while True:
             await delay(start_time, cycle_time)
@@ -321,33 +301,23 @@ class PublicAPI:
             if self.__last_data_frame_time is None:
                 continue
 
-            vehicle = None
-            with self.__vehicle.lock:
-                vehicle = deepcopy(self.__vehicle)
+            base_status = self.vehicle.get_base_status()
+            if base_status.parking_stop_detail is not None:
+                if start_time - self.__last_warning_time > 500:
+                    print(
+                        f"tate-emergency-stop: {base_status.parking_stop_detail}"
+                    )
+                    self.__last_data_frame_time = start_time
 
-            if vehicle.vehicle_state is None:
-                continue
-            else:
-                if vehicle.vehicle_state.parking_stop_detail is not None:
-                    if start_time - self.__last_warning_time > 500:
-                        print(
-                            f"tate-emergency-stop: {vehicle.vehicle_state.parking_stop_detail}"
-                        )
-                        self.__last_data_frame_time = start_time
-
-            if vehicle.vehicle_state.api_control_initialized == False:
+            if base_status.api_control_initialized == False:
                 msg = self.construct_init_message()
                 self.send_down_message(msg)
             else:
-                if vehicle.last_target_spd_write_time is None:
-                    msg = self.construct_control_message(
-                        "speed", [0.0, 0.0, 0.0])
-                else:
-                    v = self.__vehicle.inverse_kinematic(
-                        self.__vehicle.target_spd_x, self.__vehicle.target_spd_y,
-                        self.__vehicle.target_spd_r)
-                    msg = self.construct_control_message("speed", v)
-                    self.send_down_message(msg)
+                # Sending control message
+                torque = self.vehicle.get_target_torque()
+                msg = self.construct_control_message(
+                    "torque", torque)
+                self.send_down_message(msg)
 
     def is_api_exit(self) -> bool:
         return self.__loop.is_closed()
@@ -355,55 +325,19 @@ class PublicAPI:
     def wait_init(self):
         try:
             while True:
-                if self.__vehicle is not None:
+                if self.vehicle is not None:
                     break
                 time.sleep(0.1)
         except KeyboardInterrupt:
             self.close()
             exit(1)
 
-    def set_speed(self, target_spd_x, target_spd_y, target_spd_r):
-        with self.__vehicle.lock:
-            self.__vehicle.last_target_spd_write_time = time.time()
-            self.__vehicle.target_spd_x = target_spd_x
-            self.__vehicle.target_spd_y = target_spd_y
-            self.__vehicle.target_spd_r = target_spd_r
-
-    def set_torque(self, torques: list):
-        with self.__vehicle.lock:
-            self.__vehicle.last_target_spd_write_time = time.time()
-            self.__vehicle.target_torques = torques
-
-    def get_speed(self) -> Tuple[float, float, float]:
-        with self.__vehicle.lock:
-            self.__vehicle.has_new = False
-            if self.__vehicle.read_spd_x is None:
-                return (0.0, 0.0, 0.0)
-            else:
-                return (deepcopy(self.__vehicle.target_spd_x), 
-                        deepcopy(self.__vehicle.target_spd_y), 
-                        deepcopy(self.__vehicle.target_spd_r))
-        
-    def get_motor_torque(self) -> list:
-        with self.__vehicle.lock:
-            self.__vehicle.has_new = False
-            return deepcopy(self.__vehicle.wheel_torques)
-        
-    def get_motor_position(self) -> list:
-        with self.__vehicle.lock:
-            self.__vehicle.has_new = False
-            return deepcopy(self.__vehicle.wheel_positions)
-    
-    def get_motor_velocity(self) -> list:
-        with self.__vehicle.lock:
-            self.__vehicle.has_new = False
-            return deepcopy(self.__vehicle.wheel_speeds)
-        
     def _get_raw_data(self) -> Tuple[public_api_up_pb2.APIUp, int]:
+        """
+        Retrieve the oldest raw data in the buffer. 
+        The maximum length of this buffer is RAW-DATA_LEN.
+        You can use '_parse_raw_data' to parse the raw data.
+        """
         if len(self.__api_data) == 0:
             return (None, 0)
         return (self.__api_data.pop(0), len(self.__api_data))
-    
-    def has_new_data(self) -> bool:
-        with self.__vehicle.lock:
-            return self.__vehicle.has_new
