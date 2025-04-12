@@ -142,12 +142,10 @@ class PublicAPI:
         @brief: Connect to the WebSocket server, used by "initialize" function.
         """
         try:
-            async with websockets.connect(self.__ws_url,
-                                          ping_interval=20,
-                                          ping_timeout=60,
-                                          close_timeout=5) as websocket:
-                print("Connected to WebSocket server.")
-                self.__websocket = websocket
+            self.__websocket = await websockets.connect(self.__ws_url,
+                                                          ping_interval=20,
+                                                          ping_timeout=60,
+                                                          close_timeout=5)
         except Exception as e:
             print(f"Failed to open WebSocket connection: {e}")
             print(
@@ -161,7 +159,7 @@ class PublicAPI:
         self.__loop.run_until_complete(self.__main_loop())
 
     def close(self):
-        print("Received Ctrl+C, closing...")
+        print("HexVehicle API is closing...")
         if self.__loop and self.__loop.is_running():
             asyncio.run_coroutine_threadsafe(self.__async_close(), self.__loop)
         self.__loop_thread.join(timeout=1)
@@ -213,10 +211,13 @@ class PublicAPI:
                 continue
 
             except ConnectionClosed as e:
-                self.__websocket = None
                 logging.info(f"Connection closed (code: {e.code}, reason: {e.reason})")
-                await self.__reconnect()
-                continue
+                try:
+                    await self.__reconnect()
+                    continue
+                except ConnectionError as e:
+                    logging.error(f"Reconnect failed: {e}")
+                    self.close()
 
             except Exception as e:
                 logging.error(f"Unknown error: {str(e)}")
@@ -261,18 +262,19 @@ class PublicAPI:
         for task in self.__tasks:
             task.cancel()
         await asyncio.gather(*self.__tasks, return_exceptions=True)
-        print("api exited gracefully.")
+        print("HexVehicle api main_loop exited.")
 
     def _parse_raw_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[list, list, list]:
         vv = []
         tt = []
         pp = []
+            
         for motor_status in api_up.motor_status:
             # parser motor data
             # TODO: also have other data can be parser
             torque = motor_status.torque  #Nm
             speed = motor_status.speed * motor_status.wheel_radius  #m/s
-            position = motor_status.position / motor_status.pulse_per_rotation * 2.0 * PI * motor_status.wheel_radius  #m
+            position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
 
             tt.append(torque)
             vv.append(speed)
@@ -280,19 +282,24 @@ class PublicAPI:
         return (vv, tt, pp)
 
     async def __periodic_data_parser(self):
+        """
+        Capture and parse data from WebSocket connection.
+        """
         while True:
             api_up = await self.__capture_data_frame()
+            # print("api_up received", api_up)
             if len(self.__api_data) >= RAW_DATA_LEN:
                 self.__api_data.pop(0)
             self.__api_data.append(api_up)
 
             tt,v,p = self._parse_raw_data(api_up)
+            self.__last_data_frame_time = time.perf_counter()
             self.vehicle.update_wheel_data(api_up.base_status, tt, v, p)
                 
-
     async def __periodic_state_checker(self):
         cycle_time = 1000.0 / self.__control_hz
         start_time = time.perf_counter()
+        self.__last_warning_time = start_time
         while True:
             await delay(start_time, cycle_time)
             start_time = time.perf_counter()
@@ -302,22 +309,23 @@ class PublicAPI:
                 continue
 
             base_status = self.vehicle.get_base_status()
-            if base_status.parking_stop_detail is not None:
-                if start_time - self.__last_warning_time > 500:
+
+            if base_status.parking_stop_detail != public_api_types_pb2.ParkingStopDetail():
+                if start_time - self.__last_warning_time > 1.0:
                     print(
-                        f"tate-emergency-stop: {base_status.parking_stop_detail}"
+                        f"emergency stop: {base_status.parking_stop_detail}"
                     )
-                    self.__last_data_frame_time = start_time
+                    self.__last_warning_time = start_time
 
             if base_status.api_control_initialized == False:
                 msg = self.construct_init_message()
-                self.send_down_message(msg)
-            else:
-                # Sending control message
-                torque = self.vehicle.get_target_torque()
-                msg = self.construct_control_message(
-                    "torque", torque)
-                self.send_down_message(msg)
+                await self.send_down_message(msg)
+
+            # Sending control message
+            torque = self.vehicle.get_target_torque()
+            msg = self.construct_control_message(
+                "torque", torque)
+            await self.send_down_message(msg)
 
     def is_api_exit(self) -> bool:
         return self.__loop.is_closed()

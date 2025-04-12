@@ -4,3 +4,4 @@ generated/
 venv/
 __pycache__/
 *.egg-info/
+.idea/

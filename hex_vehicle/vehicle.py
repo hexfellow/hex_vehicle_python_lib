@@ -11,6 +11,12 @@ import time
 import threading
 from typing import Tuple
 from copy import deepcopy
+import numpy as np
+
+POS_KP: float = 1.0
+POS_KD: float = 0.0
+VEL_KP: float = 1.0
+VEL_KD: float = 0.0
 
 SQRT_3 = 1.7320508075688772
 
@@ -53,9 +59,10 @@ class Vehicle:
         # vehicle data read from websocket
         self.__base_status = None
         # motor data, not change id noumber
+        self.last_data_time = None
         self.__wheel_torques = []    # Nm
         self.__wheel_velocity = []   # m/s
-        self.__wheel_positions = []  # m
+        self.__wheel_positions = []  # radian
 
         self.read_battery_voltage = None # unit: V
         self.read_remoter_info = None
@@ -65,6 +72,9 @@ class Vehicle:
         # The last time ros write the target.
         self.last_target_write_time = None
         self.target_torques = []
+
+        # pid params
+        self.last_error = None
 
     def forward_kinematic(self, v: list) -> Tuple[float, float, float]:
         if self.base_type == RobotType.TripleOmniWheelLRDriver:
@@ -120,6 +130,7 @@ class Vehicle:
     def update_wheel_data(self, base_status, wheel_torques: list, wheel_velocity: list, wheel_positions: list):
         with self.__data_lock:
             self.__has_new = True
+            self.last_data_time = time.time()
             self.__base_status = base_status
             self.__wheel_torques = wheel_torques
             self.__wheel_velocity = wheel_velocity
@@ -140,6 +151,18 @@ class Vehicle:
         
     def set_motor_velocity(self, velocity: list):
         # calculate wheel torque from motor velocity
+        if self.last_error is None:
+            self.last_error = [0.0 for i in range(self.motor_cnt)]
+        np_target_velocity = np.array(velocity)
+        now_velocity = self.get_motor_velocity()
+        np_velocity = np.array(now_velocity)
+        error = np_target_velocity - np_velocity
+        derivate = (error - self.last_error) / (self.last_data_time - time.time())
+        self.last_error = error
+        output = VEL_KP * error + VEL_KD * derivate
+        print("output: ", output)
+        # self.set_motor_torque(output)
+
         if len(velocity) != self.motor_cnt:
             raise ValueError("set_motor_velocity: velocity length error")
         with self.__command_lock:
