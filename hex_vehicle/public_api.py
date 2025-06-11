@@ -11,6 +11,7 @@ from .generated.public_api_types_pb2 import ParkingStopCategory as ParkingStopCa
 from .params import WsError, ProtocolError
 from .utils import is_valid_ws_url, InvalidWSURLException, delay
 from .vehicle import Vehicle
+from .utils import log_warn, log_info, log_err, log_common
 
 import string
 from copy import deepcopy, copy
@@ -21,7 +22,6 @@ import time
 
 import websockets
 from typing import Optional, Tuple
-import logging
 from websockets.exceptions import ConnectionClosed
 
 MAX_CYCLES = 1000
@@ -34,10 +34,10 @@ class PublicAPI:
         try:
             self.__ws_url: string = is_valid_ws_url(ws_url)
         except InvalidWSURLException as e:
-            print(e)
+            log_err("Invalid WebSocket URL: " + str(e))
 
         if control_hz > MAX_CYCLES:
-            print(f"control_cycle is limit to {MAX_CYCLES}")
+            log_warn(f"control_cycle is limit to {MAX_CYCLES}")
             control_hz = MAX_CYCLES
         self.__control_hz = control_hz
 
@@ -132,10 +132,10 @@ class PublicAPI:
 
     async def send_down_message(self, data: public_api_down_pb2.APIDown):
         msg = data.SerializeToString()
-        if self.__websocket is None:
-            raise AttributeError("send_down_message: websocket tx is None")
-        else:
-            await self.__websocket.send(msg)
+        # if self.__websocket is None:
+        #     raise AttributeError("send_down_message: websocket tx is None")
+        # else:
+        #     await self.__websocket.send(msg)
 
     async def __connect_ws(self):
         """
@@ -147,27 +147,34 @@ class PublicAPI:
                                                           ping_timeout=60,
                                                           close_timeout=5)
         except Exception as e:
-            print(f"Failed to open WebSocket connection: {e}")
-            print(
+            log_err(f"Failed to open WebSocket connection: {e}")
+            log_common(
                 "Public API haved exited, please check your network connection and restart the server again."
             )
             exit(1)
 
-    def __loop_start(self):
-        self.__loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.__loop)
-        self.__loop.run_until_complete(self.__main_loop())
+    async def __reconnect(self):
+        retry_count = 0
+        max_retries = 5
+        base_delay = 1
 
-    def close(self):
-        print("HexVehicle API is closing...")
-        if self.__loop and self.__loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.__async_close(), self.__loop)
-        self.__loop_thread.join(timeout=1)
-
-    async def __async_close(self):
-        if self.__websocket:
-            await self.__websocket.close()
-        self.__shutdown_event.set()
+        while retry_count < max_retries:
+            try:
+                if self.__websocket:
+                    await self.__websocket.close()
+                self.__websocket = await websockets.connect(self.__ws_url,
+                                                          ping_interval=20,
+                                                          ping_timeout=60,
+                                                          close_timeout=5)
+                return
+            except Exception as e:
+                delay = base_delay * (2**retry_count)
+                log_warn(
+                    f"Reconnect failed (attempt {retry_count+1}): {e}, retrying in {delay}s"
+                )
+                await asyncio.sleep(delay)
+                retry_count += 1
+        raise ConnectionError("Maximum reconnect retries exceeded")
 
     async def __capture_data_frame(self) -> Optional[public_api_up_pb2.APIUp]:
         """
@@ -188,71 +195,75 @@ class PublicAPI:
                 # 设置 3 秒超时接收
                 message = await asyncio.wait_for(self.__websocket.recv(),
                                                  timeout=3.0)
-
                 # 仅处理二进制消息
                 if isinstance(message, bytes):
                     try:
                         # Protobuf 反序列化
                         api_up = public_api_up_pb2.APIUp()
                         api_up.ParseFromString(message)
+
                         if not api_up.IsInitialized():
                             raise ProtocolError("Incomplete message")
-                        return api_up
+                        # 过滤其他类型的数据
+                        elif api_up.base_status.IsInitialized():
+                            return api_up
+                        
                     except Exception as e:
-                        logging.error(f"Protobuf encode fail: {e}")
+                        log_err(f"Protobuf encode fail: {e}")
                         raise ProtocolError("Invalid message format") from e
 
                 elif isinstance(message, str):
-                    logging.debug(f"ignore string message: {message[:50]}...")
+                    log_common(f"ignore string message: {message[:50]}...")
                     continue
 
             except asyncio.TimeoutError:
-                logging.warning("No data received for 3 seconds")
+                log_err("No data received for 3 seconds")
                 continue
 
             except ConnectionClosed as e:
-                logging.info(f"Connection closed (code: {e.code}, reason: {e.reason})")
+                log_err(f"Connection closed (code: {e.code}, reason: {e.reason})")
                 try:
                     await self.__reconnect()
                     continue
                 except ConnectionError as e:
-                    logging.error(f"Reconnect failed: {e}")
+                    log_err(f"Reconnect failed: {e}")
                     self.close()
 
             except Exception as e:
-                logging.error(f"Unknown error: {str(e)}")
+                log_err(f"Unknown error: {str(e)}")
                 raise WsError("Unexpected error") from e
-
-    async def __reconnect(self):
-        retry_count = 0
-        max_retries = 5
-        base_delay = 1
-
-        while retry_count < max_retries:
-            try:
-                if self.__websocket:
-                    await self.__websocket.close()
-                self.__websocket = await websockets.connect(self.__ws_url,
-                                                          ping_interval=20,
-                                                          ping_timeout=60,
-                                                          close_timeout=5)
-                return
-            except Exception as e:
-                delay = base_delay * (2**retry_count)
-                logging.warning(
-                    f"Reconnect failed (attempt {retry_count+1}): {e}, retrying in {delay}s"
-                )
-                await asyncio.sleep(delay)
-                retry_count += 1
-        raise ConnectionError("Maximum reconnect retries exceeded")
 
     async def __capture_first_frame(self):
         api_up = await self.__capture_data_frame()
-        self.vehicle = Vehicle(api_up.robot_type)
-        print("**Vehicle is ready to use**")
+        try:
+            self.vehicle = Vehicle(api_up.robot_type)
+            log_info("\033[32m**Vehicle is ready to use**\033[0m")
+        except Exception as e:
+            log_err(f"\033[31mFailed to initialize vehicle: {e}\033[0m")
+            self.close()
+
+    def __loop_start(self):
+        self.__loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.__loop)
+        self.__loop.run_until_complete(self.__main_loop())
+
+    def close(self):
+        if self.__loop and self.__loop.is_running():
+            
+            log_warn("\033[33mHexVehicle API is closing...\033[0m")
+            asyncio.run_coroutine_threadsafe(self.__async_close(), self.__loop)
+            # try:
+            #     self.__loop_thread.join(timeout=1)
+            # finally:
+            #     pass
+
+    async def __async_close(self):
+        if self.__websocket:
+            await self.__websocket.close()
+        self.__shutdown_event.set()
 
     async def __main_loop(self):
-        print("Public API started.")
+        log_common("HexVehicle Api started.")
         await self.__connect_ws()
         await self.__capture_first_frame()
         task1 = asyncio.create_task(self.__periodic_state_checker())
@@ -262,24 +273,27 @@ class PublicAPI:
         for task in self.__tasks:
             task.cancel()
         await asyncio.gather(*self.__tasks, return_exceptions=True)
-        print("HexVehicle api main_loop exited.")
+        log_err("HexVehicle api main_loop exited.")
 
     def _parse_raw_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[list, list, list]:
         vv = []
         tt = []
         pp = []
-            
-        for motor_status in api_up.motor_status:
-            # parser motor data
-            # TODO: also have other data can be parser
-            torque = motor_status.torque  #Nm
-            speed = motor_status.speed * motor_status.wheel_radius  #m/s
-            position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
+        try:
+            pass
+            for motor_status in api_up.base_status.motor_status:
+                # parser motor data
+                # TODO: also have other data can be parser
+                torque = motor_status.torque  #Nm
+                speed = motor_status.speed
+                position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
 
-            tt.append(torque)
-            vv.append(speed)
-            pp.append(position)
-        return (vv, tt, pp)
+                tt.append(torque)
+                vv.append(speed)
+                pp.append(position)
+        except Exception as e:
+            log_err("parse_raw_data error: no motor_status data.")
+        return (tt, vv, pp)
 
     async def __periodic_data_parser(self):
         """
@@ -287,7 +301,7 @@ class PublicAPI:
         """
         while True:
             api_up = await self.__capture_data_frame()
-            # print("api_up received", api_up)
+
             if len(self.__api_data) >= RAW_DATA_LEN:
                 self.__api_data.pop(0)
             self.__api_data.append(api_up)
@@ -312,7 +326,7 @@ class PublicAPI:
 
             if base_status.parking_stop_detail != public_api_types_pb2.ParkingStopDetail():
                 if start_time - self.__last_warning_time > 1.0:
-                    print(
+                    log_err(
                         f"emergency stop: {base_status.parking_stop_detail}"
                     )
                     self.__last_warning_time = start_time

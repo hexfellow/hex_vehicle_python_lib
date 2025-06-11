@@ -6,6 +6,7 @@
 # Date  : 2025-3-20
 ################################################################
 from .generated.public_api_types_pb2 import RobotType, BaseStatus
+from .utils import log_warn, log_info, log_err, log_common
 from typing import Type
 import time
 import threading
@@ -27,31 +28,27 @@ class Vehicle:
         self.base_type = base_type
         self.motor_cnt = 0
 
-        if base_type == RobotType.Unknown:
-            print("Vehicle base type is unknown.")
-        elif base_type == RobotType.TripleOmniWheelLRDriver:
+        if base_type == RobotType.RtTripleOmniWheelLRDriver:
             # 对于三角底盘，track_width为底盘圆心半径
             self.__track_width = 0.3274
             self.motor_cnt = 3
-            print("Vehicle base type is TripleOmniWheelLRDriver.")
-        elif base_type == RobotType.SteeringWheel3Module:
+            log_info("Vehicle base type is TripleOmniWheelLRDriver.")
+        elif base_type == RobotType.RtSteeringWheel3Module:
             self.motor_cnt = 6
-            print("Vehicle base type is SteeringWheel3Module.")
-        elif base_type == RobotType.SteeringWheel4Module:
+            log_info("Vehicle base type is SteeringWheel3Module.")
+        elif base_type == RobotType.RtSteeringWheel4Module:
             self.motor_cnt = 8
-            print("Vehicle base type is SteeringWheel4Module.")
-        elif base_type == RobotType.SteeringWheelSingleAModule:
-            print("Vehicle base type is SteeringWheelSingleAModule.")
-        elif base_type == RobotType.SteeringWheelSingleBModule:
-            print("Vehicle base type is SteeringWheelSingleBModule.")
-        elif base_type == RobotType.Mark1DiffBBDriver:
-            print("Vehicle base type is Mark1DiffBBDriver.")
-        elif base_type == RobotType.Mark1McnmBBDriver:
-            print("Vehicle base type is Mark1McnmBBDriver.")
-        elif base_type == RobotType.LinearLiftISVLDriver:
-            print("Vehicle base type is LinearLiftISVLDriver.")
-        elif base_type == RobotType.PureForwardOnly:
-            print("Vehicle base type is PureForwardOnly.")
+            log_info("Vehicle base type is SteeringWheel4Module.")
+        elif base_type == RobotType.RtSteeringWheelSingleAModule:
+            log_info("Vehicle base type is SteeringWheelSingleAModule.")
+        elif base_type == RobotType.RtSteeringWheelSingleBModule:
+            log_info("Vehicle base type is SteeringWheelSingleBModule.")
+        elif base_type == RobotType.RtMark1DiffBBDriver:
+            log_info("Vehicle base type is Mark1DiffBBDriver.")
+        elif base_type == RobotType.RtMark1McnmBBDriver:
+            log_info("Vehicle base type is Mark1McnmBBDriver.")
+        else:
+            raise ValueError(f"Unsupported robot type: {base_type}")
 
         # model data
         self.__data_lock = threading.Lock()
@@ -137,6 +134,9 @@ class Vehicle:
             self.__wheel_positions = wheel_positions
 
     def set_motor_torque(self, torques: list):
+        '''
+        sending target torque to motor
+        '''
         if len(torques) != self.motor_cnt:
             raise ValueError("set_motor_torque: torques length error")
         with self.__command_lock:
@@ -148,8 +148,11 @@ class Vehicle:
             if self.last_target_write_time is None or time.time() - self.last_target_write_time > 0.2:
                 return [0.0 for i in range(self.motor_cnt)]
             return deepcopy(self.target_torques)
-        
+    
     def set_motor_velocity(self, velocity: list):
+        """
+        use torque to control motor velocity
+        """
         # calculate wheel torque from motor velocity
         if self.last_error is None:
             self.last_error = [0.0 for i in range(self.motor_cnt)]
@@ -160,8 +163,7 @@ class Vehicle:
         derivate = (error - self.last_error) / (self.last_data_time - time.time())
         self.last_error = error
         output = VEL_KP * error + VEL_KD * derivate
-        print("output: ", output)
-        # self.set_motor_torque(output)
+        self.set_motor_torque(output)
 
         if len(velocity) != self.motor_cnt:
             raise ValueError("set_motor_velocity: velocity length error")
@@ -169,6 +171,9 @@ class Vehicle:
             self.last_target_write_time = time.time()
 
     def set_motor_position(self, position: list):
+        '''
+        use torque to control motor position, not implemented yet.
+        '''
         # calculate wheel velocity from motor position
         if len(position) != self.motor_cnt:
             raise ValueError("set_motor_position: position length error")

@@ -7,8 +7,9 @@ import time
 
 def main():
     # 创建 PublicAPI 实例并初始化
-    api = VehicleAPI(ws_url = "ws://172.18.25.64:8439", control_hz = 200)
-    # api = VehicleAPI(ws_url = "ws://0.0.0.0:8439", control_hz = 100)
+    # api = VehicleAPI(ws_url = "ws://172.18.2.66:8439", control_hz = 200)
+    # api = VehicleAPI(ws_url = "ws://10.1.1.1:8439", control_hz = 200)
+    api = VehicleAPI(ws_url = "ws://127.0.0.1:8439", control_hz = 200)
 
     # 获取车辆接口
     velocity_interface = api.vehicle
@@ -20,12 +21,14 @@ def main():
                 break
             else:
                 data, count = api._get_raw_data()
+                if data != None:
+                    print("count = ", count)
 
                 if velocity_interface.has_new_data():
                     velocity = velocity_interface.get_motor_velocity()
-                    # print("velocity:", velocity)
+                    print("velocity:", velocity)
                     tor = velocity_interface.get_motor_torque()
-                    # print("tor:", tor)
+                    print("tor:", tor)
 
                 # velocity_interface.set_motor_torque([0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
                 
