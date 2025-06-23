@@ -7,7 +7,6 @@
 ################################################################
 from enum import Enum
 
-# 自定义异常类型
 class WsError(Exception):
     pass
 

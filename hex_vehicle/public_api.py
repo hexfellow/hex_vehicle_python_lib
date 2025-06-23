@@ -7,7 +7,7 @@
 ################################################################
 
 from .generated import public_api_down_pb2, public_api_up_pb2, public_api_types_pb2
-from .params import WsError, ProtocolError
+from .error_type import WsError, ProtocolError
 from .utils import is_valid_ws_url, InvalidWSURLException, delay
 from .vehicle import Vehicle
 from .utils import log_warn, log_info, log_err, log_common
@@ -205,10 +205,10 @@ class PublicAPI:
         4. No data due to timeout
         
         @params:
-            websocket: 已建立的 WebSocket 连接对象
+            websocket: Established WebSocket connection object
             
-        返回:
-            base_backend.APIUp 对象 或 None
+        @return:
+            base_backend.APIUp object or None
         """
         while True:
             try:
@@ -218,19 +218,19 @@ class PublicAPI:
                     await asyncio.sleep(1)
                     continue
                 
-                # 设置 3 秒超时接收
+                # Timeout
                 message = await asyncio.wait_for(self.__websocket.recv(),
                                                  timeout=3.0)
-                # 仅处理二进制消息
+                # Only process binary messages
                 if isinstance(message, bytes):
                     try:
-                        # Protobuf 反序列化
+                        # Protobuf parse
                         api_up = public_api_up_pb2.APIUp()
                         api_up.ParseFromString(message)
 
                         if not api_up.IsInitialized():
                             raise ProtocolError("Incomplete message")
-                        # 过滤其他类型的数据
+                        # Filter other type message
                         elif api_up.base_status.IsInitialized():
                             return api_up
                         
@@ -392,13 +392,11 @@ class PublicAPI:
             # Sending control message. Check if simple control mode is enabled.
             if self.vehicle._simple_control_mode == False:
                 targets = self.vehicle.get_motor_targets()
-                print("targets", targets)
                 msg = self.construct_wheel_control_message(
                     self.__control_mode, targets)
                 await self.send_down_message(msg)
             elif self.vehicle._simple_control_mode == True:
                 targets = self.vehicle.get_target_vehicle_speed()
-                print("vehicle speed", targets)
                 msg = self.construct_simple_control_message(targets)
                 await self.send_down_message(msg)
 

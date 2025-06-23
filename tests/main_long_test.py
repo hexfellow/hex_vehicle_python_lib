@@ -1,16 +1,21 @@
 import sys
+import random
+import time
+
 sys.path.insert(1, '/home/jecjune/docker_link/python/hex_vehicle_python_lib')
 sys.path.insert(1, '/home/jecjune/docker_link/python/hex_vehicle_python_lib/hex_vehicle/generated')
 
 from hex_vehicle import PublicAPI as VehicleAPI
-import time
 
 def main():
     # Init VehicleAPI
-    api = VehicleAPI(ws_url = "ws://172.18.2.66:8439", control_hz = 200, control_mode = "speed")
+    api = VehicleAPI(ws_url="ws://172.18.2.66:8439", control_hz=200, control_mode="speed")
 
     # Get velocity interface
     velocity_interface = api.vehicle
+
+    # Initialize previous velocity
+    prev_velocity = [0.0] * 8  # 8 motor velocities initialized to 0
 
     try:
         while True:
@@ -19,7 +24,7 @@ def main():
                 break
             else:
                 data, count = api._get_raw_data()
-                if data != None:
+                if data is not None:
                     pass
                     # print("count = ", count)
 
@@ -31,11 +36,16 @@ def main():
                     position = velocity_interface.get_motor_position()
                     print("position:", position)
 
-                # velocity_interface.set_target_vehicle_speed(0.0, 0.0, 1.0)
-                velocity_interface.set_motor_velocity([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                # Generate new velocity values with random changes within range [-0.5, 0.5]
+                new_velocity = [
+                    max(min(prev_velocity[i] + random.uniform(-0.5, 0.5), 1.0), -1.0)
+                    for i in range(8)
+                ]
+                velocity_interface.set_motor_velocity(new_velocity)
+                prev_velocity = new_velocity  # Update the previous velocity
 
-            time.sleep(0.0005)
-            
+            time.sleep(1.0 / 100.0)
+
     except KeyboardInterrupt:
         print("Received Ctrl-C.")
         api.close()
