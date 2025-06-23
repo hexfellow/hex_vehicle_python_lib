@@ -19,187 +19,211 @@ POS_KD: float = 0.0
 VEL_KP: float = 1.0
 VEL_KD: float = 0.0
 
-SQRT_3 = 1.7320508075688772
+TIME_OUT: float = 0.2
+
 
 class Vehicle:
-    def __init__(self, base_type):
+    def __init__(self, base_type, control_mode):
 
         # chassis type
         self.base_type = base_type
         self.motor_cnt = 0
 
+        # TODO: add motor cnt sync
         if base_type == RobotType.RtTripleOmniWheelLRDriver:
-            # 对于三角底盘，track_width为底盘圆心半径
-            self.__track_width = 0.3274
             self.motor_cnt = 3
-            log_info("Vehicle base type is TripleOmniWheelLRDriver.")
-        elif base_type == RobotType.RtSteeringWheel3Module:
-            self.motor_cnt = 6
-            log_info("Vehicle base type is SteeringWheel3Module.")
-        elif base_type == RobotType.RtSteeringWheel4Module:
+            log_info("Vehicle base type is RtTripleOmniWheelLRDriver.")
+        elif base_type == RobotType.RtPcwVehicle:
             self.motor_cnt = 8
-            log_info("Vehicle base type is SteeringWheel4Module.")
-        elif base_type == RobotType.RtSteeringWheelSingleAModule:
-            log_info("Vehicle base type is SteeringWheelSingleAModule.")
-        elif base_type == RobotType.RtSteeringWheelSingleBModule:
-            log_info("Vehicle base type is SteeringWheelSingleBModule.")
+            log_info("Vehicle base type is RtPcwVehicle.")
+        elif base_type == RobotType.RtCustomPcwVehicle:
+            self.motor_cnt = 8
+            log_info("Vehicle base type is RtCustomPcwVehicle.")
         elif base_type == RobotType.RtMark1DiffBBDriver:
-            log_info("Vehicle base type is Mark1DiffBBDriver.")
+            log_info("Vehicle base type is RtMark1DiffBBDriver.")
         elif base_type == RobotType.RtMark1McnmBBDriver:
-            log_info("Vehicle base type is Mark1McnmBBDriver.")
+            log_info("Vehicle base type is RtMark1McnmBBDriver.")
         else:
             raise ValueError(f"Unsupported robot type: {base_type}")
 
-        # model data
         self.__data_lock = threading.Lock()
+        self.last_data_time = None
         self.__has_new = False
         # vehicle data read from websocket
         self.__base_status = None
         # motor data, not change id noumber
-        self.last_data_time = None
         self.__wheel_torques = []    # Nm
         self.__wheel_velocity = []   # m/s
         self.__wheel_positions = []  # radian
+        # vehicle data
+        self.__vehicle_speed = (0.0, 0.0, 0.0)
+        self.__vehicle_position = (0.0, 0.0, 0.0)
 
-        self.read_battery_voltage = None # unit: V
-        self.read_remoter_info = None
-        self.read_error = None
+        self.__read_battery_voltage = None # unit: V
+        self.__read_remoter_info = None
+        self.__read_error = None
 
+        # control mode
+        self.__control_mode = control_mode
+        # if you want to change or read the target, you need to lock the command_lock
         self.__command_lock = threading.Lock()
-        # The last time ros write the target.
+        # The last time write the target, if the target is not written for 0.2s, the target will be set to 0.0
         self.last_target_write_time = None
-        self.target_torques = []
 
-        # pid params
+        # target torque or velocity for motor
+        self.__motor_targets = []
+        # simple control mode, true means control vehicle speed, false means control motor target.
+        self._simple_control_mode = None
+        # target vehicle speed
+        self.__target_vehicle_speed = (0.0, 0.0, 0.0)
+
+         # pid params
         self.last_error = None
 
-    def forward_kinematic(self, v: list) -> Tuple[float, float, float]:
-        if self.base_type == RobotType.TripleOmniWheelLRDriver:
-            if len(v)!= 3:
-                raise ValueError("forward_kinematic: wheel_speeds length error")
-            d_inv = 1.0 / self.__track_width  / 3.0
-            spd_x = -(SQRT_3 / 3.0) * v[0] + (SQRT_3 / 3.0) * v[2]
-            spd_y = (1.0 / 3.0) * v[0] + -(2.0 / 3.0) * v[1] + (1.0 / 3.0) * v[2]
-            spd_r = d_inv * v[0] + d_inv * v[1] + d_inv * v[2]
-            return (spd_x, spd_y, spd_r)
-        else:
-            raise NotImplementedError("forward_kinematic not implemented for base_type: ", self.base_type)
-
-    def inverse_kinematic(self, v_x, v_y, v_r) -> list:
-        if self.base_type == RobotType.TripleOmniWheelLRDriver:
-            d = self.__track_width
-            v = [0.0, 0.0, 0.0]
-            v[0] = -(SQRT_3 / 2.0) * v_x + 0.5 * v_y + v_r * d
-            v[1] = -v_y + v_r * d
-            v[2] = (SQRT_3 / 2.0) * v_x + 0.5 * v_y + v_r * d
-            return v
-        else:
-            raise NotImplementedError("inverse_kinematic not implemented for base_type: ", self.base_type)
-
-    def set_vehicle_speed(self, target_spd_x, target_spd_y, target_spd_r):
+    def set_target_vehicle_speed(self, target_spd_x, target_spd_y, target_spd_r):
         """
-        calc wheel speed from vehicle speeds and set motor velocity.
+        Use simple control mode to set vehicle speed.
         target_spd_x,target_spd_y   unit: m/s
         target_spd_r                unit: rad/s.
         """
-        if self.base_type == RobotType.TripleOmniWheelLRDriver:
-            v = self.inverse_kinematic(target_spd_x, target_spd_y, target_spd_r)
-            self.set_motor_velocity(v)
+        if self._simple_control_mode == False:
+            raise NotImplementedError("set_vehicle_speed not implemented for _simple_control_mode: False")
+        elif self._simple_control_mode == None:
+            self._simple_control_mode = True
+
+        if self.base_type == RobotType.RtPcwVehicle or self.base_type == RobotType.RtCustomPcwVehicle:
+            with self.__command_lock:
+                self.last_target_write_time = time.time()
+                self.__target_vehicle_speed = (target_spd_x, target_spd_y, target_spd_r)
         else:
             raise NotImplementedError("set_vehicle_speed not implemented for base_type: ", self.base_type)
-        
-        with self.__command_lock:
-            self.last_target_write_time = time.time()
-            self.set_vehicle_speed(v)
 
+    def get_target_vehicle_speed(self) -> Tuple[float, float, float]:
+        """ get target vehicle speed """
+        with self.__command_lock:
+            if self.last_target_write_time is None or time.time() - self.last_target_write_time > TIME_OUT:
+                return (0.0, 0.0, 0.0)
+            return deepcopy(self.__target_vehicle_speed)
+        
     def get_vehicle_speed(self) -> Tuple[float, float, float]:
-        """ calc vehicle speed from wheel speeds """
+        """ get vehicle speed """
         with self.__data_lock:
             self.__has_new = False
-            wheel_speeds = self.__wheel_velocity
-        if self.base_type == RobotType.TripleOmniWheelLRDriver:
-            if len(wheel_speeds) != 3:
-                return (0.0, 0.0, 0.0)
-            return self.forward_kinematic(wheel_speeds)
+            wheel_speeds = self.__vehicle_speed
+        if self.base_type == RobotType.RtPcwVehicle or self.base_type == RobotType.RtCustomPcwVehicle:
+            return wheel_speeds
         else:
             raise NotImplementedError("get_vehicle_speed not implemented for base_type: ", self.base_type)
+        
+    def update_vehicle_data(self, vehicle_speed: Tuple[float, float, float], vehicle_position: Tuple[float, float, float]):
+        with self.__data_lock:
+            self.__has_new = True
+            self.last_data_time = time.time()
+            self.__vehicle_speed = vehicle_speed
+            self.__vehicle_position = vehicle_position
         
     def update_wheel_data(self, base_status, wheel_torques: list, wheel_velocity: list, wheel_positions: list):
         with self.__data_lock:
             self.__has_new = True
             self.last_data_time = time.time()
             self.__base_status = base_status
+            if base_status.parking_stop_detail.IsInitialized() == False:
+                self.__base_status.parking_stop_detail = public_api_types_pb2.ParkingStopDetail()
             self.__wheel_torques = wheel_torques
             self.__wheel_velocity = wheel_velocity
             self.__wheel_positions = wheel_positions
 
-    def set_motor_torque(self, torques: list):
+    def __set_motor_targets(self, target: list):
         '''
-        sending target torque to motor
+        set motor target
         '''
-        if len(torques) != self.motor_cnt:
-            raise ValueError("set_motor_torque: torques length error")
+        if len(target) != self.motor_cnt:
+            raise ValueError("__set_motor_targets: target length error")
         with self.__command_lock:
             self.last_target_write_time = time.time()
-            self.target_torques = deepcopy(torques)
+            self.__motor_targets = deepcopy(target)
 
-    def get_target_torque(self) -> list:
+    def get_motor_targets(self) -> list:
         with self.__command_lock:
-            if self.last_target_write_time is None or time.time() - self.last_target_write_time > 0.2:
+            if self.last_target_write_time is None or time.time() - self.last_target_write_time > TIME_OUT:
                 return [0.0 for i in range(self.motor_cnt)]
-            return deepcopy(self.target_torques)
+            return deepcopy(self.__motor_targets)
     
     def set_motor_velocity(self, velocity: list):
         """
-        use torque to control motor velocity
+        If in "speed" mode, the velocity is the target velocity, if in "torque" mode, the output is the pid calculated torque.
         """
-        # calculate wheel torque from motor velocity
+        # check if the velocity is valid
         if self.last_error is None:
             self.last_error = [0.0 for i in range(self.motor_cnt)]
-        np_target_velocity = np.array(velocity)
-        now_velocity = self.get_motor_velocity()
-        np_velocity = np.array(now_velocity)
-        error = np_target_velocity - np_velocity
-        derivate = (error - self.last_error) / (self.last_data_time - time.time())
-        self.last_error = error
-        output = VEL_KP * error + VEL_KD * derivate
-        self.set_motor_torque(output)
-
+        if self.last_data_time is None:
+            self.last_data_time = time.time()
         if len(velocity) != self.motor_cnt:
             raise ValueError("set_motor_velocity: velocity length error")
-        with self.__command_lock:
-            self.last_target_write_time = time.time()
+            
+        if self._simple_control_mode == True:
+            raise NotImplementedError("set_motor_velocity not implemented for _simple_control_mode: True")
+        elif self._simple_control_mode == None:
+            self._simple_control_mode = False
+
+        # if in "speed" mode, set the target velocity
+        if self.__control_mode == "speed":
+            self.__set_motor_targets(velocity)
+        # if in "torque" mode, calculate the torque
+        elif self.__control_mode == "torque":
+            np_target_velocity = np.array(velocity)
+            now_velocity = self.get_motor_velocity()
+            np_velocity = np.array(now_velocity)
+            error = np_target_velocity - np_velocity
+            derivate = (error - self.last_error) / (self.last_data_time - time.time())
+            self.last_error = error
+            output = VEL_KP * error + VEL_KD * derivate
+            self.__set_motor_targets(output)
 
     def set_motor_position(self, position: list):
         '''
         use torque to control motor position, not implemented yet.
         '''
+        raise NotImplementedError("set_motor_position: not implemented")
+
         # calculate wheel velocity from motor position
-        if len(position) != self.motor_cnt:
-            raise ValueError("set_motor_position: position length error")
-        with self.__command_lock:
-            self.last_target_write_time = time.time()
+        self.__set_motor_targets(position)
 
     def get_base_status(self) -> BaseStatus:
+        '''
+        Get current base status 
+        '''
         with self.__data_lock:
             self.__has_new = False
             return deepcopy(self.__base_status)
 
     def get_motor_torque(self) -> list:
+        '''
+        Get motor real motor torque
+        '''
         with self.__data_lock:
             self.__has_new = False
             return deepcopy(self.__wheel_torques)
         
     def get_motor_position(self) -> list:
+        '''
+        Get motor real motor position
+        '''
         with self.__data_lock:
             self.__has_new = False
             return deepcopy(self.__wheel_positions)
     
     def get_motor_velocity(self) -> list:
+        '''
+        Get motor real motor velocity
+        '''
         with self.__data_lock:
             self.__has_new = False
             return deepcopy(self.__wheel_velocity)
 
     def has_new_data(self) -> bool:
+        '''
+        Check if there is any raw data in the buffer that has not been read.
+        '''
         with self.__data_lock:
             return self.__has_new

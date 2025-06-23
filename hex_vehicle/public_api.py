@@ -7,7 +7,6 @@
 ################################################################
 
 from .generated import public_api_down_pb2, public_api_up_pb2, public_api_types_pb2
-from .generated.public_api_types_pb2 import ParkingStopCategory as ParkingStopCategory
 from .params import WsError, ProtocolError
 from .utils import is_valid_ws_url, InvalidWSURLException, delay
 from .vehicle import Vehicle
@@ -15,7 +14,7 @@ from .utils import log_warn, log_info, log_err, log_common
 
 import string
 from copy import deepcopy, copy
-from numpy import pi as PI
+from math import pi as PI
 import asyncio
 import threading
 import time
@@ -29,12 +28,16 @@ RAW_DATA_LEN = 50
 
 class PublicAPI:
 
-    def __init__(self, ws_url: string, control_hz: int):
+    def __init__(self, ws_url: str, control_hz: int, control_mode: str = "speed"):
         self.__websocket = None
         try:
-            self.__ws_url: string = is_valid_ws_url(ws_url)
+            self.__ws_url: str = is_valid_ws_url(ws_url)
         except InvalidWSURLException as e:
             log_err("Invalid WebSocket URL: " + str(e))
+
+        if control_mode not in ["speed"]:
+            raise ValueError("control_mode must be 'speed'")
+        self.__control_mode = control_mode
 
         if control_hz > MAX_CYCLES:
             log_warn(f"control_cycle is limit to {MAX_CYCLES}")
@@ -52,7 +55,7 @@ class PublicAPI:
         self.__loop_thread.start()
         self.wait_init()
 
-    def construct_control_message(self, control_mode: str,
+    def construct_wheel_control_message(self, control_mode: str,
                                   data: list) -> public_api_down_pb2.APIDown:
         """
         @brief: For constructing a control message.
@@ -80,6 +83,23 @@ class PublicAPI:
         msg.base_command.CopyFrom(base_command)
         return msg
 
+    def construct_simple_control_message(self,
+                                         data: Tuple[float, float, float]) -> public_api_down_pb2.APIDown:
+        """
+        @brief: For constructing a simple control message.
+        """
+        msg = public_api_down_pb2.APIDown()
+        base_command = public_api_types_pb2.BaseCommand()
+        simple_base_move_command = public_api_types_pb2.SimpleBaseMoveCommand()
+        xyz_speed = public_api_types_pb2.XyzSpeed()
+        xyz_speed.speed_x = data[0]
+        xyz_speed.speed_y = data[1]
+        xyz_speed.speed_z = data[2]
+        simple_base_move_command.xyz_speed.CopyFrom(xyz_speed)
+        base_command.simple_move_command.CopyFrom(simple_base_move_command)
+        msg.base_command.CopyFrom(base_command)
+        return msg
+
     def construct_init_message(self) -> public_api_down_pb2.APIDown:
         """
         @brief: For constructing a init message.
@@ -102,19 +122,19 @@ class PublicAPI:
         return msg
 
     def construct_set_parking_stop_message(
-            self, reason: str, category: ParkingStopCategory,
+            self, reason: str, category: int,
             is_remotely_clearable: bool) -> public_api_down_pb2.APIDown:
         """
         @brief: For constructing a set_parking_stop message.
         @params:
             reason: what caused the parking stop
             category: parking stop category, values can be :
-                ParkingStopCategory.EmergencyStopButton,
-                ParkingStopCategory.MotorHasError,
-                ParkingStopCategory.BatteryFail
-                ParkingStopCategory.GamepadTriggered,
-                ParkingStopCategory.UnknownParkingStopCategory,
-                ParkingStopCategory.APICommunicationTimeout
+                0: EmergencyStopButton,
+                1: MotorHasError,
+                2: BatteryFail
+                3: GamepadTriggered,
+                4: UnknownParkingStopCategory,
+                5: APICommunicationTimeout
             is_remotely_clearable: whether the parking stop can be cleared remotely
         """
         msg = public_api_down_pb2.APIDown()
@@ -132,10 +152,10 @@ class PublicAPI:
 
     async def send_down_message(self, data: public_api_down_pb2.APIDown):
         msg = data.SerializeToString()
-        # if self.__websocket is None:
-        #     raise AttributeError("send_down_message: websocket tx is None")
-        # else:
-        #     await self.__websocket.send(msg)
+        if self.__websocket is None:
+            raise AttributeError("send_down_message: websocket tx is None")
+        else:
+            await self.__websocket.send(msg)
 
     async def __connect_ws(self):
         """
@@ -192,6 +212,12 @@ class PublicAPI:
         """
         while True:
             try:
+                # Check if websocket is connected
+                if self.__websocket is None:
+                    log_err("WebSocket is not connected")
+                    await asyncio.sleep(1)
+                    continue
+                
                 # 设置 3 秒超时接收
                 message = await asyncio.wait_for(self.__websocket.recv(),
                                                  timeout=3.0)
@@ -234,9 +260,12 @@ class PublicAPI:
                 raise WsError("Unexpected error") from e
 
     async def __capture_first_frame(self):
+        api_up = public_api_up_pb2.APIUp()
+        # while api_up.robot_type.IsInitialized() == False:
         api_up = await self.__capture_data_frame()
+            # print("robot_type", api_up.robot_type)
         try:
-            self.vehicle = Vehicle(api_up.robot_type)
+            self.vehicle = Vehicle(api_up.robot_type, self.__control_mode)
             log_info("\033[32m**Vehicle is ready to use**\033[0m")
         except Exception as e:
             log_err(f"\033[31mFailed to initialize vehicle: {e}\033[0m")
@@ -252,10 +281,6 @@ class PublicAPI:
             
             log_warn("\033[33mHexVehicle API is closing...\033[0m")
             asyncio.run_coroutine_threadsafe(self.__async_close(), self.__loop)
-            # try:
-            #     self.__loop_thread.join(timeout=1)
-            # finally:
-            #     pass
 
     async def __async_close(self):
         if self.__websocket:
@@ -275,17 +300,16 @@ class PublicAPI:
         await asyncio.gather(*self.__tasks, return_exceptions=True)
         log_err("HexVehicle api main_loop exited.")
 
-    def _parse_raw_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[list, list, list]:
+    def _parse_wheel_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[list, list, list]:
         vv = []
         tt = []
         pp = []
         try:
-            pass
             for motor_status in api_up.base_status.motor_status:
                 # parser motor data
                 # TODO: also have other data can be parser
                 torque = motor_status.torque  #Nm
-                speed = motor_status.speed
+                speed = motor_status.speed  #m/s
                 position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
 
                 tt.append(torque)
@@ -294,6 +318,25 @@ class PublicAPI:
         except Exception as e:
             log_err("parse_raw_data error: no motor_status data.")
         return (tt, vv, pp)
+
+    def _parse_vehicle_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+        '''
+        parse the vehilce data from odometry.
+        '''
+        (spd_x, spd_y, spd_r) = (0.0, 0.0, 0.0)
+        (pos_x, pos_y, pos_r) = (0.0, 0.0, 0.0)
+        try:
+            if api_up.base_status.estimated_odometry.IsInitialized():
+                spd_x = api_up.base_status.estimated_odometry.speed_x
+                spd_y = api_up.base_status.estimated_odometry.speed_y
+                spd_r = api_up.base_status.estimated_odometry.speed_z
+                pos_x = api_up.base_status.estimated_odometry.pos_x
+                pos_y = api_up.base_status.estimated_odometry.pos_y
+                pos_r = api_up.base_status.estimated_odometry.pos_z
+        except Exception as e:
+            pass
+            # log_err("parse_vehicle_data error: no estimated_odometry data.")
+        return (spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r)
 
     async def __periodic_data_parser(self):
         """
@@ -306,10 +349,13 @@ class PublicAPI:
                 self.__api_data.pop(0)
             self.__api_data.append(api_up)
 
-            tt,v,p = self._parse_raw_data(api_up)
+            tt,v,p = self._parse_wheel_data(api_up)
             self.__last_data_frame_time = time.perf_counter()
             self.vehicle.update_wheel_data(api_up.base_status, tt, v, p)
-                
+
+            (spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r) = self._parse_vehicle_data(api_up)
+            self.vehicle.update_vehicle_data((spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r))
+    
     async def __periodic_state_checker(self):
         cycle_time = 1000.0 / self.__control_hz
         start_time = time.perf_counter()
@@ -322,24 +368,39 @@ class PublicAPI:
             if self.__last_data_frame_time is None:
                 continue
 
+            # Check if vehicle is initialized
+            if self.vehicle is None:
+                continue
             base_status = self.vehicle.get_base_status()
 
+            # check if have parking stop
             if base_status.parking_stop_detail != public_api_types_pb2.ParkingStopDetail():
                 if start_time - self.__last_warning_time > 1.0:
                     log_err(
                         f"emergency stop: {base_status.parking_stop_detail}"
                     )
                     self.__last_warning_time = start_time
+                # try to clear parking stop
+                msg = self.construct_clear_parking_stop_message()
+                await self.send_down_message(msg)
 
+            # check if vehicle is initialized
             if base_status.api_control_initialized == False:
                 msg = self.construct_init_message()
                 await self.send_down_message(msg)
 
-            # Sending control message
-            torque = self.vehicle.get_target_torque()
-            msg = self.construct_control_message(
-                "torque", torque)
-            await self.send_down_message(msg)
+            # Sending control message. Check if simple control mode is enabled.
+            if self.vehicle._simple_control_mode == False:
+                targets = self.vehicle.get_motor_targets()
+                print("targets", targets)
+                msg = self.construct_wheel_control_message(
+                    self.__control_mode, targets)
+                await self.send_down_message(msg)
+            elif self.vehicle._simple_control_mode == True:
+                targets = self.vehicle.get_target_vehicle_speed()
+                print("vehicle speed", targets)
+                msg = self.construct_simple_control_message(targets)
+                await self.send_down_message(msg)
 
     def is_api_exit(self) -> bool:
         return self.__loop.is_closed()
@@ -358,7 +419,7 @@ class PublicAPI:
         """
         Retrieve the oldest raw data in the buffer. 
         The maximum length of this buffer is RAW-DATA_LEN.
-        You can use '_parse_raw_data' to parse the raw data.
+        You can use '_parse_wheel_data' to parse the raw data.
         """
         if len(self.__api_data) == 0:
             return (None, 0)
