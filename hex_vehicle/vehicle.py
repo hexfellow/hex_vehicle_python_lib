@@ -23,21 +23,18 @@ TIME_OUT: float = 0.2
 
 
 class Vehicle:
-    def __init__(self, base_type, control_mode):
+    def __init__(self, base_type, control_mode, motor_cnt: int = 8):
 
         # chassis type
         self.base_type = base_type
-        self.motor_cnt = 0
+        self.motor_cnt = motor_cnt
 
-        # TODO: add motor cnt sync
         if base_type == RobotType.RtTripleOmniWheelLRDriver:
             self.motor_cnt = 3
             log_info("Vehicle base type is RtTripleOmniWheelLRDriver.")
         elif base_type == RobotType.RtPcwVehicle:
-            self.motor_cnt = 8
             log_info("Vehicle base type is RtPcwVehicle.")
         elif base_type == RobotType.RtCustomPcwVehicle:
-            self.motor_cnt = 8
             log_info("Vehicle base type is RtCustomPcwVehicle.")
         elif base_type == RobotType.RtMark1DiffBBDriver:
             log_info("Vehicle base type is RtMark1DiffBBDriver.")
@@ -55,6 +52,7 @@ class Vehicle:
         self.__wheel_torques = []    # Nm
         self.__wheel_velocity = []   # m/s
         self.__wheel_positions = []  # radian
+        self.__wheel_errors = []
         # vehicle data
         self.__vehicle_speed = (0.0, 0.0, 0.0)
         self.__vehicle_position = (0.0, 0.0, 0.0)
@@ -122,7 +120,7 @@ class Vehicle:
             self.__vehicle_speed = vehicle_speed
             self.__vehicle_position = vehicle_position
         
-    def update_wheel_data(self, base_status, wheel_torques: list, wheel_velocity: list, wheel_positions: list):
+    def update_wheel_data(self, base_status, wheel_torques: list, wheel_velocity: list, wheel_positions: list, wheel_errors: list):
         with self.__data_lock:
             self.__has_new = True
             self.last_data_time = time.time()
@@ -132,6 +130,7 @@ class Vehicle:
             self.__wheel_torques = wheel_torques
             self.__wheel_velocity = wheel_velocity
             self.__wheel_positions = wheel_positions
+            self.__wheel_errors = wheel_errors
 
     def __set_motor_targets(self, target: list):
         '''
@@ -220,6 +219,14 @@ class Vehicle:
         with self.__data_lock:
             self.__has_new = False
             return deepcopy(self.__wheel_velocity)
+
+    def get_motor_error(self) -> list:
+        '''
+        Get motor real motor error
+        '''
+        with self.__data_lock:
+            self.__has_new = False
+            return deepcopy(self.__wheel_errors)
 
     def has_new_data(self) -> bool:
         '''

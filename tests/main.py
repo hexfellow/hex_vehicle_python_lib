@@ -30,6 +30,8 @@ def main():
                     print("tor:", tor)
                     position = velocity_interface.get_motor_position()
                     print("position:", position)
+                    error = velocity_interface.get_motor_error()
+                    print("error:", error)
 
                 # velocity_interface.set_target_vehicle_speed(0.0, 0.0, 1.0)
                 velocity_interface.set_motor_velocity([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])

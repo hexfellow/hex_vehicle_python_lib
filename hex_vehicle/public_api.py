@@ -260,15 +260,20 @@ class PublicAPI:
                 raise WsError("Unexpected error") from e
 
     async def __capture_first_frame(self):
+        # init parameter
         api_up = public_api_up_pb2.APIUp()
-        # while api_up.robot_type.IsInitialized() == False:
-        api_up = await self.__capture_data_frame()
-            # print("robot_type", api_up.robot_type)
+        api_up.robot_type = public_api_types_pb2.RobotType.RtUnknown
+        # wait for robot type
+        while api_up.robot_type == public_api_types_pb2.RobotType.RtUnknown:
+            api_up = await self.__capture_data_frame()
+        # try to init vehicle
         try:
-            self.vehicle = Vehicle(api_up.robot_type, self.__control_mode)
-            log_info("\033[32m**Vehicle is ready to use**\033[0m")
+            motor_cnt = len(api_up.base_status.motor_status)
+            log_common(f"motor_cnt: {motor_cnt}")
+            self.vehicle = Vehicle(api_up.robot_type, self.__control_mode, motor_cnt)
+            log_info("**Vehicle is ready to use**")
         except Exception as e:
-            log_err(f"\033[31mFailed to initialize vehicle: {e}\033[0m")
+            log_err(f"Failed to initialize vehicle: {e}")
             self.close()
 
     def __loop_start(self):
@@ -279,7 +284,7 @@ class PublicAPI:
     def close(self):
         if self.__loop and self.__loop.is_running():
             
-            log_warn("\033[33mHexVehicle API is closing...\033[0m")
+            log_warn("HexVehicle API is closing...")
             asyncio.run_coroutine_threadsafe(self.__async_close(), self.__loop)
 
     async def __async_close(self):
@@ -304,19 +309,26 @@ class PublicAPI:
         vv = []
         tt = []
         pp = []
+        ee = []
         try:
             for motor_status in api_up.base_status.motor_status:
                 # parser motor data
                 # TODO: also have other data can be parser
                 torque = motor_status.torque  #Nm
-                speed = motor_status.speed  #m/s
-                position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
-
                 tt.append(torque)
+                speed = motor_status.speed  #m/s
                 vv.append(speed)
+                position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
                 pp.append(position)
+                error = motor_status.error
+                ee.append(error)
+
         except Exception as e:
             log_err("parse_raw_data error: no motor_status data.")
+
+        self.vehicle.update_wheel_data(api_up.base_status, tt, vv, pp, ee)
+        self.__last_data_frame_time = time.perf_counter()
+        
         return (tt, vv, pp)
 
     def _parse_vehicle_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
@@ -349,12 +361,14 @@ class PublicAPI:
                 self.__api_data.pop(0)
             self.__api_data.append(api_up)
 
-            tt,v,p = self._parse_wheel_data(api_up)
-            self.__last_data_frame_time = time.perf_counter()
-            self.vehicle.update_wheel_data(api_up.base_status, tt, v, p)
-
+            # parse wheel data
+            self._parse_wheel_data(api_up)
+            
+            # parse vehicle data
             (spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r) = self._parse_vehicle_data(api_up)
             self.vehicle.update_vehicle_data((spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r))
+
+
     
     async def __periodic_state_checker(self):
         cycle_time = 1000.0 / self.__control_hz
