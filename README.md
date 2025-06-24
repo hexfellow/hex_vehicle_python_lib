@@ -1,51 +1,104 @@
-# Hex Vehicle Package
-This is a simple package for control vehicle.
+# Hex Vehicle Python Library
 
-If you don't have your python environment yat and want the simplest way to get started, we recommend you use the Anaconda Distribution - it includes Python, NumPy, and many other commonly used packages for scientific computing and data science.
+A Python library for controlling hex vehicles through a WebSocket-based API.
 
-# Do not install and run
-You can choose not to install and execute this software package directly in the local environment.
-1. Compile the proto message
-How to compile the proto message in local files:
-```shell
-mkdir ./hex_vehicle/generated && protoc --proto_path=proto-public-api --python_out=hex_vehicle/generated proto-public-api/*.proto
-```
-2. Add a path to your running script
+## Overview
+
+This library provides a simple interface for communicating with and controlling hex vehicles. It uses Protocol Buffers for message serialization and WebSocket for real-time communication.
+
+## Prerequisites
+
+- Python 3.10 or higher
+- Anaconda Distribution (recommended for beginners) - includes Python, NumPy, and commonly used scientific computing packages
+
+## Installation
+
+### Option 1: Direct Usage (No Installation)
+
+If you prefer to run the library without installing it in your Python environment:
+
+1. **Compile Protocol Buffer messages:**
+   ```bash
+   mkdir ./hex_vehicle/generated
+   protoc --proto_path=proto-public-api --python_out=hex_vehicle/generated proto-public-api/*.proto
+   ```
+
+2. **Add the library path to your script:**
+   ```python
+   import sys
+   sys.path.insert(1, '<your project path>/hex_vehicle_python_lib')
+   sys.path.insert(1, '<your project path>/hex_vehicle_python_lib/hex_vehicle/generated')
+   ```
+
+3. **Run your test script:**
+   ```bash
+   python3 tests/<your_script>.py
+   ```
+
+### Option 2: Package Installation
+
+To install the library in your Python environment:
+
+1. **Build the package:**
+   ```bash
+   python3 -m build
+   ```
+
+2. **Install the package:**
+   ```bash
+   pip3 install dist/hex_vehicle-0.0.1-py3-none-any.whl
+   ```
+
+3. **Run your test script:**
+   ```bash
+   python3 tests/<your_script>.py
+   ```
+
+## Usage
+
+All vehicle control interfaces are provided through the `VehicleAPI` class:
+
 ```python
-import sys
-sys.path.insert(1, '<your project path>/hex_vehicle_python_lib')
-sys.path.insert(1, '<your project path>/hex_vehicle/generated')
-```
-3. Start to run the test code
-```shell
-python3 tests/<your script>.py
+from hex_vehicle import PublicAPI as VehicleAPI
+
+# Initialize the API
+api = VehicleAPI(ws_url="ws://your_vehicle_ip:8439", control_hz=200, control_mode="speed")
+
+# Get vehicle interface
+vehicle = api.vehicle
+
+# Control the vehicle
+vehicle.set_target_vehicle_speed(x_speed, y_speed, rotation_speed)
 ```
 
-# Install and run
-You can also install this package in your python environment.
-1. Build the package
-```shell
-python3 -m build
-```
-2. Install the package
-```shell
-pip3 install dist/hex_vehicle-0.0.1-py3-none-any.whl
-```
-3. Start to run the test code
-```shell
-python3 tests/<your script>.py
-```
+## Architecture
 
-# Details
-All interfaces will be provided from the Vehicle API class.
+The library consists of three main modules:
 
-...
-Wait to update...
+### 1. public_api
+- **Network Manager**: Handles Protocol Buffer message construction and WebSocket communication
+- Manages data transmission to and from the vehicle
 
-This lib contain Three modules:
-1. public_api
-- network manager: Reference proto package, construct data to send and receive data
-2. vehicle
-- vehicle data manager: Loop to update vehicle data. Implement interfaces for obtaining chassis status and controlling the chassis
-3. utils
-- General tools: Manage parameters and provide some common functionality.
+### 2. vehicle  
+- **Vehicle Data Manager**: Continuously updates vehicle data in a loop
+- Provides interfaces for:
+  - Obtaining chassis status
+  - Controlling vehicle movement
+  - Reading motor data (velocity, torque, position)
+
+### 3. utils
+- **General Tools**: Parameter management and common utility functions
+- Provides helper functions for various operations
+
+## Examples
+
+See the `tests/` directory for example usage:
+- `main.py` - Basic vehicle control example
+- `main_pygame.py` - Joystick control example using pygame
+
+## Requirements
+
+- numpy>=1.17.4,<=1.26.4
+- protobuf
+- websockets
+- pygame (for joystick control examples)
