@@ -2,8 +2,8 @@ import sys
 import random
 import time
 
-sys.path.insert(1, '/Downloads/python/hex_vehicle_python_lib')
-sys.path.insert(1, '/Downloads/python/hex_vehicle_python_lib/hex_vehicle/generated')
+sys.path.insert(1, '<your project path>/hex_vehicle_python_lib')
+sys.path.insert(1, '<your project path>/hex_vehicle_python_lib/hex_vehicle/generated')
 
 from hex_vehicle import PublicAPI as VehicleAPI
 

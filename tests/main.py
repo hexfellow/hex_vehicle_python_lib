@@ -1,6 +1,6 @@
 import sys
-sys.path.insert(1, '/home/jecjune/docker_link/python/hex_vehicle_python_lib')
-sys.path.insert(1, '/home/jecjune/docker_link/python/hex_vehicle_python_lib/hex_vehicle/generated')
+sys.path.insert(1, '<your project path>/hex_vehicle_python_lib')
+sys.path.insert(1, '<your project path>/hex_vehicle_python_lib/hex_vehicle/generated')
 
 from hex_vehicle import PublicAPI as VehicleAPI
 import time
