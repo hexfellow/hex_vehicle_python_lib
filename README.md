@@ -16,25 +16,31 @@ import sys
 sys.path.insert(1, '<your project path>/hex_vehicle_python_lib')
 sys.path.insert(1, '<your project path>/hex_vehicle/generated')
 ```
+3. Start to run the test code
+```shell
+python3 tests/<your script>.py
+```
 
 # Install and run
 You can also install this package in your python environment.
-## Build the package
+1. Build the package
 ```shell
 python3 -m build
 ```
-## Install the package
+2. Install the package
 ```shell
 pip3 install dist/hex_vehicle-0.0.1-py3-none-any.whl
 ```
-
+3. Start to run the test code
+```shell
+python3 tests/<your script>.py
+```
 
 # Details
 All interfaces will be provided from the Vehicle API class.
 
 ...
-
-
+Wait to update...
 
 This lib contain Three modules:
 1. public_api
