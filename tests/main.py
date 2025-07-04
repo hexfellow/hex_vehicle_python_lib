@@ -11,6 +11,9 @@ def main():
 
     # Get velocity interface
     velocity_interface = api.vehicle
+    if velocity_interface is None:
+        print("Failed to get velocity interface.")
+        exit(1)
 
     try:
         while True:
@@ -18,11 +21,13 @@ def main():
                 print("Public API has exited.")
                 break
             else:
+                # Get raw data
                 data, count = api._get_raw_data()
                 if data != None:
                     pass
                     # print("count = ", count)
 
+                # Get period update data
                 if velocity_interface.has_new_data():
                     velocity = velocity_interface.get_motor_velocity()
                     print("velocity:", velocity)
@@ -33,8 +38,9 @@ def main():
                     error = velocity_interface.get_motor_error()
                     print("error:", error)
 
-                # velocity_interface.set_target_vehicle_speed(0.0, 0.0, 1.0)
-                velocity_interface.set_motor_velocity([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                # Send control command
+                velocity_interface.set_target_vehicle_speed(0.0, 0.0, 1.0)
+                # velocity_interface.set_motor_velocity([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
             time.sleep(0.0005)
             

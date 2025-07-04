@@ -177,7 +177,7 @@ class Vehicle:
             derivate = (error - self.last_error) / (self.last_data_time - time.time())
             self.last_error = error
             output = VEL_KP * error + VEL_KD * derivate
-            self.__set_motor_targets(output)
+            self.__set_motor_targets(output.tolist())
 
     def set_motor_position(self, position: list):
         '''
