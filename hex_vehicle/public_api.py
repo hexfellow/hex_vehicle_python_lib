@@ -44,7 +44,7 @@ class PublicAPI:
             control_hz = MAX_CYCLES
         self.__control_hz = control_hz
 
-        self.__shutdown_event = asyncio.Event()
+        self.__shutdown_event = None
         self.__last_data_frame_time = None
         self.vehicle = None
         self.__last_warning_time = time.perf_counter()
@@ -55,6 +55,7 @@ class PublicAPI:
         self.__loop_thread.start()
         self.wait_init()
 
+    # construct control message
     def construct_wheel_control_message(self, control_mode: str,
                                   data: list) -> public_api_down_pb2.APIDown:
         """
@@ -150,6 +151,7 @@ class PublicAPI:
         msg.base_command.CopyFrom(base_command)
         return msg
 
+    # send control message
     async def send_down_message(self, data: public_api_down_pb2.APIDown):
         msg = data.SerializeToString()
         if self.__websocket is None:
@@ -157,6 +159,7 @@ class PublicAPI:
         else:
             await self.__websocket.send(msg)
 
+    # websocket function
     async def __connect_ws(self):
         """
         @brief: Connect to the WebSocket server, used by "initialize" function.
@@ -276,6 +279,7 @@ class PublicAPI:
             log_err(f"Failed to initialize vehicle: {e}")
             self.close()
 
+    # process manager
     def __loop_start(self):
         self.__loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.__loop)
@@ -283,16 +287,17 @@ class PublicAPI:
 
     def close(self):
         if self.__loop and self.__loop.is_running():
-            
             log_warn("HexVehicle API is closing...")
             asyncio.run_coroutine_threadsafe(self.__async_close(), self.__loop)
 
     async def __async_close(self):
         if self.__websocket:
             await self.__websocket.close()
-        self.__shutdown_event.set()
+        if self.__shutdown_event:
+            self.__shutdown_event.set()
 
     async def __main_loop(self):
+        self.__shutdown_event = asyncio.Event()
         log_common("HexVehicle Api started.")
         await self.__connect_ws()
         await self.__capture_first_frame()
@@ -305,6 +310,20 @@ class PublicAPI:
         await asyncio.gather(*self.__tasks, return_exceptions=True)
         log_err("HexVehicle api main_loop exited.")
 
+    def is_api_exit(self) -> bool:
+        return self.__loop.is_closed()
+    
+    def wait_init(self):
+        try:
+            while True:
+                if self.vehicle is not None:
+                    break
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            self.close()
+            exit(1)
+
+    # parse data
     def _parse_wheel_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[list, list, list]:
         vv = []
         tt = []
@@ -367,8 +386,6 @@ class PublicAPI:
             # parse vehicle data
             (spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r) = self._parse_vehicle_data(api_up)
             self.vehicle.update_vehicle_data((spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r))
-
-
     
     async def __periodic_state_checker(self):
         cycle_time = 1000.0 / self.__control_hz
@@ -414,23 +431,11 @@ class PublicAPI:
                 msg = self.construct_simple_control_message(targets)
                 await self.send_down_message(msg)
 
-    def is_api_exit(self) -> bool:
-        return self.__loop.is_closed()
-    
-    def wait_init(self):
-        try:
-            while True:
-                if self.vehicle is not None:
-                    break
-                time.sleep(0.1)
-        except KeyboardInterrupt:
-            self.close()
-            exit(1)
-
     def _get_raw_data(self) -> Tuple[public_api_up_pb2.APIUp, int]:
         """
-        Retrieve the oldest raw data in the buffer. 
-        The maximum length of this buffer is RAW-DATA_LEN.
+        The original data is acquired and stored in the form of a sliding window sequence. 
+        By parsing this sequence, a lossless data stream can be obtained.
+        The maximum length of this buffer is RAW_DATA_LEN.
         You can use '_parse_wheel_data' to parse the raw data.
         """
         if len(self.__api_data) == 0:

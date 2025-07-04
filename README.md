@@ -6,12 +6,18 @@ A Python library for controlling hex vehicles through a WebSocket-based API.
 
 This library provides a simple interface for communicating with and controlling hex vehicles. It uses Protocol Buffers for message serialization and WebSocket for real-time communication.
 
+## Clone
+```
+git clone https://github.com/hexfellow/hex_lift_python_lib.git
+git submodule update --init
+```
+
 ## Prerequisites
 
-- Python 3.10 or higher
+- **Python 3.8.10 or higher**
 - Anaconda Distribution (recommended for beginners) - includes Python, NumPy, and commonly used scientific computing packages
 
-## Installation
+## Quickstart
 
 ### Option 1: Direct Usage (No Installation)
 
@@ -30,7 +36,13 @@ If you prefer to run the library without installing it in your Python environmen
    sys.path.insert(1, '<your project path>/hex_vehicle_python_lib/hex_vehicle/generated')
    ```
 
-3. **Run your test script:**
+3. **Install dependencies**
+   ```bash
+   pip install websockets
+   pip install pygame
+   ```
+
+4. **Run your test script:**
    ```bash
    python3 tests/<your_script>.py
    ```
@@ -92,9 +104,13 @@ The library consists of three main modules:
 
 ## Examples
 
-See the `tests/` directory for example usage:
+Please refer to the `tests/` directory for example usage:
 - `main.py` - Basic vehicle control example
-- `main_pygame.py` - Joystick control example using pygame
+- `main_pygame.py` - Joystick control example using pygame.
+- `vehicle_calc.py` - A simple kinematics solution.
+
+Additional application projects can be found here:
+[tidybot2](https://github.com/hexfellow/tidybot2/blob/main/base_controller_pygame.py)
 
 ## Requirements
 
