@@ -53,15 +53,10 @@ To install the library in your Python environment:
 
 1. **Build the package:**
    ```bash
-   python3 -m build
+   python3 -m pip install .
    ```
 
-2. **Install the package:**
-   ```bash
-   pip3 install dist/hex_vehicle-0.0.1-py3-none-any.whl
-   ```
-
-3. **Run your test script:**
+2. **Run your test script:**
    ```bash
    python3 tests/<your_script>.py
    ```
@@ -114,7 +109,7 @@ Additional application projects can be found here:
 
 ## Requirements
 
-- numpy>=1.17.4,<=1.26.4
+- numpy>=1.17.4
 - protobuf
 - websockets
 - pygame (for joystick control examples)
