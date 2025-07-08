@@ -228,6 +228,12 @@ class Vehicle:
             self.__has_new = False
             return deepcopy(self.__wheel_errors)
 
+    def get_motor_cnt(self) -> int:
+        '''
+        Get motor count
+        '''
+        return self.motor_cnt
+
     def has_new_data(self) -> bool:
         '''
         Check if there is any raw data in the buffer that has not been read.
