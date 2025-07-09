@@ -5,6 +5,7 @@
 # Author: Jecjune jecjune@qq.com
 # Date  : 2025-3-20
 ################################################################
+from .generated import public_api_types_pb2
 from .generated.public_api_types_pb2 import RobotType, BaseStatus
 from .utils import log_warn, log_info, log_err, log_common
 from typing import Type
@@ -50,12 +51,18 @@ class Vehicle:
         self.__base_status = None
         # motor data, not change id noumber
         self.__wheel_torques = []    # Nm
-        self.__wheel_velocity = []   # m/s
+        self.__wheel_velocity = []   # rad/s
         self.__wheel_positions = []  # radian
         self.__wheel_errors = []
         # vehicle data
         self.__vehicle_speed = (0.0, 0.0, 0.0)
         self.__vehicle_position = (0.0, 0.0, 0.0)
+        # Initialize origin position as identity transformation matrix
+        self.__vehicle_origin_position = np.array([
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0]
+        ])
 
         self.__read_battery_voltage = None # unit: V
         self.__read_remoter_info = None
@@ -105,13 +112,56 @@ class Vehicle:
         
     def get_vehicle_speed(self) -> Tuple[float, float, float]:
         """ get vehicle speed """
-        with self.__data_lock:
-            self.__has_new = False
-            wheel_speeds = self.__vehicle_speed
         if self.base_type == RobotType.RtPcwVehicle or self.base_type == RobotType.RtCustomPcwVehicle:
-            return wheel_speeds
+            with self.__data_lock:
+                self.__has_new = False
+                return deepcopy(self.__vehicle_speed)
         else:
             raise NotImplementedError("get_vehicle_speed not implemented for base_type: ", self.base_type)
+
+    def get_vehicle_position(self) -> Tuple[float, float, float]:
+        """ get vehicle position
+        Odometry position, unit: m
+        """
+        if self.base_type == RobotType.RtPcwVehicle or self.base_type == RobotType.RtCustomPcwVehicle:
+            with self.__data_lock:
+                self.__has_new = False
+                
+                # Convert current position to transformation matrix
+                x, y, yaw = self.__vehicle_position
+                cos_yaw = np.cos(yaw)
+                sin_yaw = np.sin(yaw)
+                current_matrix = np.array([
+                    [cos_yaw, -sin_yaw, x],
+                    [sin_yaw,  cos_yaw, y],
+                    [0.0,      0.0,     1.0]
+                ])
+                
+                # Calculate relative transformation: current * inverse(origin)
+                origin_inv = np.linalg.inv(self.__vehicle_origin_position)
+                relative_matrix = current_matrix @ origin_inv
+                
+                # Extract position and orientation from relative matrix
+                relative_x = relative_matrix[0, 2]
+                relative_y = relative_matrix[1, 2]
+                relative_yaw = np.arctan2(relative_matrix[1, 0], relative_matrix[0, 0])
+                
+                return (relative_x, relative_y, relative_yaw)
+        else:
+            raise NotImplementedError("get_vehicle_position not implemented for base_type: ", self.base_type)
+
+    def reset_vehicle_position(self):
+        """ reset odometry position """
+        with self.__data_lock:
+            x, y, yaw = self.__vehicle_position
+            # Convert (x, y, yaw) to 2D transformation matrix
+            cos_yaw = np.cos(yaw)
+            sin_yaw = np.sin(yaw)
+            self.__vehicle_origin_position = np.array([
+                [cos_yaw, -sin_yaw, x],
+                [sin_yaw,  cos_yaw, y],
+                [0.0,      0.0,     1.0]
+            ])
         
     def update_vehicle_data(self, vehicle_speed: Tuple[float, float, float], vehicle_position: Tuple[float, float, float]):
         with self.__data_lock:
@@ -198,7 +248,7 @@ class Vehicle:
 
     def get_motor_torque(self) -> list:
         '''
-        Get motor real motor torque
+        Get motor real motor torque, unit: Nm
         '''
         with self.__data_lock:
             self.__has_new = False
@@ -206,7 +256,7 @@ class Vehicle:
         
     def get_motor_position(self) -> list:
         '''
-        Get motor real motor position
+        Get motor real motor position, unit: radian
         '''
         with self.__data_lock:
             self.__has_new = False
@@ -214,7 +264,7 @@ class Vehicle:
     
     def get_motor_velocity(self) -> list:
         '''
-        Get motor real motor velocity
+        Get motor real motor velocity, unit: rad/s
         '''
         with self.__data_lock:
             self.__has_new = False

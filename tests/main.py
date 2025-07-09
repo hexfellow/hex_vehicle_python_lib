@@ -37,6 +37,14 @@ def main():
                     print("position:", position)
                     error = velocity_interface.get_motor_error()
                     print("error:", error)
+                    
+                    try:
+                        velocity_speed = velocity_interface.get_vehicle_speed()
+                        print("velocity_speed:", velocity_speed)
+                        velocity_pos = velocity_interface.get_vehicle_position()
+                        print("velocity_pos:", velocity_pos)
+                    except Exception as e:
+                        print("get_vehicle_speed or get_vehicle_position error:", e)
 
                 # Send control command
                 velocity_interface.set_target_vehicle_speed(0.0, 0.0, 1.0)
