@@ -234,7 +234,7 @@ class PublicAPI:
                         if not api_up.IsInitialized():
                             raise ProtocolError("Incomplete message")
                         # Filter other type message
-                        elif api_up.base_status.IsInitialized():
+                        elif api_up.base_status.IsInitialized() or api_up.imu_data.IsInitialized():
                             return api_up
                         
                     except Exception as e:
@@ -330,25 +330,25 @@ class PublicAPI:
         pp = []
         ee = []
         try:
-            for motor_status in api_up.base_status.motor_status:
-                # parser motor data
-                # TODO: also have other data can be parser
-                torque = motor_status.torque  #Nm
-                tt.append(torque)
-                speed = motor_status.speed  #m/s
-                vv.append(speed)
-                position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
-                pp.append(position)
-                error = motor_status.error
-                ee.append(error)
-
+            if api_up.base_status.IsInitialized():
+                for motor_status in api_up.base_status.motor_status:
+                    # parser motor data
+                    # TODO: also have other data can be parser
+                    torque = motor_status.torque  #Nm
+                    tt.append(torque)
+                    speed = motor_status.speed  #m/s
+                    vv.append(speed)
+                    position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
+                    pp.append(position)
+                    error = motor_status.error
+                    ee.append(error)
+                self.vehicle.update_wheel_data(api_up.base_status, tt, vv, pp, ee)
+                self.__last_data_frame_time = time.perf_counter()
         except Exception as e:
             log_err("parse_raw_data error: no motor_status data.")
-
-        self.vehicle.update_wheel_data(api_up.base_status, tt, vv, pp, ee)
-        self.__last_data_frame_time = time.perf_counter()
+            pass
         
-        return (tt, vv, pp)
+        return (deepcopy(tt), deepcopy(vv), deepcopy(pp))
 
     def _parse_vehicle_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
         '''
@@ -364,10 +364,28 @@ class PublicAPI:
                 pos_x = api_up.base_status.estimated_odometry.pos_x
                 pos_y = api_up.base_status.estimated_odometry.pos_y
                 pos_r = api_up.base_status.estimated_odometry.pos_z
+                self.vehicle.update_vehicle_data((spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r))
         except Exception as e:
             pass
             # log_err("parse_vehicle_data error: no estimated_odometry data.")
         return (spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r)
+
+    def _parse_imu_data(self, api_up: public_api_up_pb2.APIUp) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float, float]]:
+        '''
+        parse the imu data from imu.
+        '''
+        acc = (0.0, 0.0, 0.0)
+        angular_velocity = (0.0, 0.0, 0.0)
+        quaternion = (0.0, 0.0, 0.0, 0.0)
+        try:
+            if api_up.imu_data.IsInitialized():
+                acc = api_up.imu_data.acceleration
+                angular_velocity = api_up.imu_data.angular_velocity
+                quaternion = api_up.imu_data.quaternion
+                self.vehicle.update_imu_data(acc, angular_velocity, quaternion)
+        except Exception as e:
+            pass
+        return (deepcopy(acc), deepcopy(angular_velocity), deepcopy(quaternion))
 
     async def __periodic_data_parser(self):
         """
@@ -384,8 +402,10 @@ class PublicAPI:
             self._parse_wheel_data(api_up)
             
             # parse vehicle data
-            (spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r) = self._parse_vehicle_data(api_up)
-            self.vehicle.update_vehicle_data((spd_x, spd_y, spd_r), (pos_x, pos_y, pos_r))
+            self._parse_vehicle_data(api_up)
+
+            # parse imu data
+            self._parse_imu_data(api_up)
     
     async def __periodic_state_checker(self):
         cycle_time = 1000.0 / self.__control_hz

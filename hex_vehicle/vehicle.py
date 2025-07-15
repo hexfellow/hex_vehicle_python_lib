@@ -63,6 +63,11 @@ class Vehicle:
             [0.0, 1.0, 0.0],
             [0.0, 0.0, 1.0]
         ])
+        # imu data
+        self.has_imu = False
+        self.imu_acc = (0.0, 0.0, 0.0)
+        self.imu_angular_velocity = (0.0, 0.0, 0.0)
+        self.imu_quaternion = (0.0, 0.0, 0.0, 0.0)
 
         self.__read_battery_voltage = None # unit: V
         self.__read_remoter_info = None
@@ -182,6 +187,13 @@ class Vehicle:
             self.__wheel_positions = wheel_positions
             self.__wheel_errors = wheel_errors
 
+    def update_imu_data(self, acc: Tuple[float, float, float], angular_velocity: Tuple[float, float, float], quaternion: Tuple[float, float, float, float]):
+        with self.__data_lock:
+            self.has_imu = True
+            self.imu_acc = acc
+            self.imu_angular_velocity = angular_velocity
+            self.imu_quaternion = quaternion
+
     def __set_motor_targets(self, target: list):
         '''
         set motor target
@@ -283,6 +295,13 @@ class Vehicle:
         Get motor count
         '''
         return self.motor_cnt
+
+    def get_imu_data(self) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float, float]]:
+        '''
+        Get imu data
+        '''
+        with self.__data_lock:
+            return deepcopy(self.imu_acc), deepcopy(self.imu_angular_velocity), deepcopy(self.imu_quaternion)
 
     def has_new_data(self) -> bool:
         '''

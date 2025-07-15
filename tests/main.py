@@ -7,13 +7,15 @@ import time
 
 def main():
     # Init VehicleAPI
-    api = VehicleAPI(ws_url = "ws://172.18.2.66:8439", control_hz = 200, control_mode = "speed")
+    api = VehicleAPI(ws_url = "ws://172.18.23.92:8439", control_hz = 200, control_mode = "speed")
 
     # Get velocity interface
     velocity_interface = api.vehicle
     if velocity_interface is None:
         print("Failed to get velocity interface.")
         exit(1)
+
+    velocity_interface.reset_vehicle_position()
 
     try:
         while True:
@@ -37,7 +39,7 @@ def main():
                     print("position:", position)
                     error = velocity_interface.get_motor_error()
                     print("error:", error)
-                    
+
                     try:
                         velocity_speed = velocity_interface.get_vehicle_speed()
                         print("velocity_speed:", velocity_speed)
@@ -45,9 +47,16 @@ def main():
                         print("velocity_pos:", velocity_pos)
                     except Exception as e:
                         print("get_vehicle_speed or get_vehicle_position error:", e)
+                
+                if velocity_interface.has_imu:
+                    imu_acc, _, imu_quaternion = velocity_interface.get_imu_data()
+                    print("imu_acc:", imu_acc)
+                    print("imu_quaternion:", imu_quaternion)
+                else:
+                    print("no imu data")
 
                 # Send control command
-                velocity_interface.set_target_vehicle_speed(0.0, 0.0, 1.0)
+                velocity_interface.set_target_vehicle_speed(0.0, 0.0, 0.0)
                 # velocity_interface.set_motor_velocity([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
             time.sleep(0.0005)
