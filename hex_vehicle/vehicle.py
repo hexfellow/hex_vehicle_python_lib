@@ -139,7 +139,7 @@ class Vehicle:
                 
                 # Calculate relative transformation: current * inverse(origin)
                 origin_inv = np.linalg.inv(self.__vehicle_origin_position)
-                relative_matrix = current_matrix @ origin_inv
+                relative_matrix = origin_inv @ current_matrix
                 
                 # Extract position and orientation from relative matrix
                 relative_x = relative_matrix[0, 2]
