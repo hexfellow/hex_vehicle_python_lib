@@ -432,8 +432,8 @@ class PublicAPI:
                     )
                     self.__last_warning_time = start_time
                 # try to clear parking stop
-                msg = self.construct_clear_parking_stop_message()
-                await self.send_down_message(msg)
+                # msg = self.construct_clear_parking_stop_message()
+                # await self.send_down_message(msg)
 
             # check if vehicle is initialized
             if base_status.api_control_initialized == False:

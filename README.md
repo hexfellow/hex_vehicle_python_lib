@@ -28,6 +28,23 @@ If you prefer to run the library without installing it in your Python environmen
    mkdir ./hex_vehicle/generated
    protoc --proto_path=proto-public-api --python_out=hex_vehicle/generated proto-public-api/*.proto
    ```
+   
+   **Note:** This library requires newer protoc. If compilation fails, please try to install protoc-27.1 using the binary installation method below.
+   **Installing protoc-27.1:**
+   ```bash
+   # For Linux x86_64
+   wget https://github.com/protocolbuffers/protobuf/releases/download/v27.1/protoc-27.1-linux-x86_64.zip
+   sudo unzip protoc-27.1-linux-x86_64.zip -d /usr/local
+   rm protoc-27.1-linux-x86_64.zip
+   
+   # For Linux arm64
+   wget https://github.com/protocolbuffers/protobuf/releases/download/v27.1/protoc-27.1-linux-aarch_64.zip
+   sudo unzip protoc-27.1-linux-aarch_64.zip -d /usr/local
+   rm protoc-27.1-linux-aarch_64.zip
+   
+   #  Verify installation
+   protoc --version  # Should show libprotoc 27.1
+   ```
 
 2. **Add the library path to your script:**
    ```python
