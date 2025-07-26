@@ -450,6 +450,9 @@ class PublicAPI:
                 targets = self.vehicle.get_target_vehicle_speed()
                 msg = self.construct_simple_control_message(targets)
                 await self.send_down_message(msg)
+            elif self.vehicle._simple_control_mode == None:
+                msg = self.construct_init_message()
+                await self.send_down_message(msg)
 
     def _get_raw_data(self) -> Tuple[public_api_up_pb2.APIUp, int]:
         """
