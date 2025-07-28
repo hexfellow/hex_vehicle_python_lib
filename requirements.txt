@@ -1,9 +1,4 @@
-###### Requirements without Version Specifiers ######
-
-
-###### Requirements with Version Specifiers ######
-#   See https://www.python.org/dev/peps/pep-0440/#version-specifiers
-  "numpy>=1.17.4",
-  "protobuf",
-  "websockets",
-  "pygame",
+numpy>=1.17.4
+protobuf
+websockets
+pygame
