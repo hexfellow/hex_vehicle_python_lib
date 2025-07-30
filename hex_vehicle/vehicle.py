@@ -86,6 +86,8 @@ class Vehicle:
         self._simple_control_mode = None
         # target vehicle speed
         self.__target_vehicle_speed = (0.0, 0.0, 0.0)
+        # target zero resistance
+        self.__target_zero_resistance = False
 
          # pid params
         self.last_error = None
@@ -249,6 +251,27 @@ class Vehicle:
 
         # calculate wheel velocity from motor position
         self.__set_motor_targets(position)
+
+    def enable(self):
+        '''
+        set zero resistance
+        '''
+        with self.__command_lock:
+            self.__target_zero_resistance = False
+    
+    def disable(self):
+        '''
+        disable chassis
+        '''
+        with self.__command_lock:
+            self.__target_zero_resistance = True
+
+    def get_target_zero_resistance(self) -> bool:
+        '''
+        get target zero resistance
+        '''
+        with self.__command_lock:
+            return self.__target_zero_resistance
 
     def get_base_status(self) -> BaseStatus:
         '''

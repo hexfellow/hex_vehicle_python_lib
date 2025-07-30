@@ -101,6 +101,25 @@ class PublicAPI:
         msg.base_command.CopyFrom(base_command)
         return msg
 
+    def construct_zero_resistance_message(self,
+                                          data: bool, is_simple_control_mode: bool) -> public_api_down_pb2.APIDown:
+        """
+        @brief: For constructing a zero resistance message.
+        """
+        if is_simple_control_mode:
+            msg = public_api_down_pb2.APIDown()
+            base_command = public_api_types_pb2.BaseCommand()
+            simple_base_move_command = public_api_types_pb2.SimpleBaseMoveCommand()
+            simple_base_move_command.zero_resistance = data
+            base_command.simple_move_command.CopyFrom(simple_base_move_command)
+            msg.base_command.CopyFrom(base_command)
+        else:
+            msg = public_api_down_pb2.APIDown()
+            base_command = public_api_types_pb2.BaseCommand()
+            base_command.api_control_initialize = not data
+            msg.base_command.CopyFrom(base_command)
+        return msg
+
     def construct_init_message(self) -> public_api_down_pb2.APIDown:
         """
         @brief: For constructing a init message.
@@ -441,12 +460,31 @@ class PublicAPI:
                 await self.send_down_message(msg)
 
             # Sending control message. Check if simple control mode is enabled.
+            # Only one control mode can be selected in one running time.
             if self.vehicle._simple_control_mode == False:
+                # check if vehicle is zero resistance.
+                is_zero_resistance = self.vehicle.get_target_zero_resistance()
+                if is_zero_resistance:
+                    msg = self.construct_zero_resistance_message(is_zero_resistance, False)
+                    await self.send_down_message(msg)
+                    continue
+                else:
+                    msg = self.construct_zero_resistance_message(is_zero_resistance, False)
+                    await self.send_down_message(msg)
                 targets = self.vehicle.get_motor_targets()
                 msg = self.construct_wheel_control_message(
                     self.__control_mode, targets)
                 await self.send_down_message(msg)
             elif self.vehicle._simple_control_mode == True:
+                # check if vehicle is zero resistance.
+                is_zero_resistance = self.vehicle.get_target_zero_resistance()
+                if is_zero_resistance:
+                    msg = self.construct_zero_resistance_message(is_zero_resistance, True)
+                    await self.send_down_message(msg)
+                    continue
+                else:
+                    msg = self.construct_zero_resistance_message(is_zero_resistance, True)
+                    await self.send_down_message(msg)
                 targets = self.vehicle.get_target_vehicle_speed()
                 msg = self.construct_simple_control_message(targets)
                 await self.send_down_message(msg)

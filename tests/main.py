@@ -27,7 +27,6 @@ def main():
                 data, count = api._get_raw_data()
                 if data != None:
                     pass
-                    # print("count = ", count)
 
                 # Get period update data
                 if velocity_interface.has_new_data():
@@ -55,9 +54,16 @@ def main():
                 else:
                     print("no imu data")
 
-                # Send control command
+                # Send simple control command
                 velocity_interface.set_target_vehicle_speed(0.0, 0.0, 0.0)
+
+                # Send complex control command
                 # velocity_interface.set_motor_velocity([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+                # Send zero resistance command.
+                # If the vehicle is in zero resistance mode, the vehicle will not response the target speed command.
+                velocity_interface.enable()
+                # velocity_interface.disable()
 
             time.sleep(0.0005)
             

@@ -8,8 +8,7 @@ This library provides a simple interface for communicating with and controlling 
 
 ## Clone
 ```
-git clone https://github.com/hexfellow/hex_lift_python_lib.git
-git submodule update --init
+git clone --recurse-submodules https://github.com/hexfellow/hex_vehicle_python_lib.git
 ```
 
 ## Prerequisites
@@ -127,6 +126,6 @@ Additional application projects can be found here:
 ## Requirements
 
 - numpy>=1.17.4
-- protobuf
+- protobuf>=5.29.4,<6.0.0
 - websockets
 - pygame (for joystick control examples)
