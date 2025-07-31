@@ -18,7 +18,21 @@ git clone --recurse-submodules https://github.com/hexfellow/hex_vehicle_python_l
 
 ## Quickstart
 
-### Option 1: Direct Usage (No Installation)
+### Option 1: Package Installation
+
+To install the library in your Python environment:
+
+1. **Build the package:**
+   ```bash
+   python3 -m pip install .
+   ```
+
+2. **Run your test script:**
+   ```bash
+   python3 tests/<your_script>.py
+   ```
+
+### Option 2: Direct Usage (No Installation)
 
 If you prefer to run the library without installing it in your Python environment:
 
@@ -59,20 +73,6 @@ If you prefer to run the library without installing it in your Python environmen
    ```
 
 4. **Run your test script:**
-   ```bash
-   python3 tests/<your_script>.py
-   ```
-
-### Option 2: Package Installation
-
-To install the library in your Python environment:
-
-1. **Build the package:**
-   ```bash
-   python3 -m pip install .
-   ```
-
-2. **Run your test script:**
    ```bash
    python3 tests/<your_script>.py
    ```
