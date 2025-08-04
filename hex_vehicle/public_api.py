@@ -18,6 +18,7 @@ from math import pi as PI
 import asyncio
 import threading
 import time
+import math
 
 import websockets
 from typing import Optional, Tuple
@@ -355,7 +356,9 @@ class PublicAPI:
                     # TODO: also have other data can be parser
                     torque = motor_status.torque  #Nm
                     tt.append(torque)
-                    speed = motor_status.speed  #m/s
+                    speed = motor_status.speed  #rad/s
+                    if math.fabs(speed) < 0.0367:
+                        speed = 0.0
                     vv.append(speed)
                     position = (motor_status.position % motor_status.pulse_per_rotation) / motor_status.pulse_per_rotation * (2.0 * PI) - PI  # radian
                     pp.append(position)
